@@ -1,6 +1,6 @@
-import type { SVGProps } from "react";
+import type { ReactElement, SVGProps } from "react";
 
-type P = SVGProps<SVGSVGElement> & { size?: number };
+export type P = SVGProps<SVGSVGElement> & { size?: number };
 
 function S({ size = 18, children, ...rest }: P) {
   return (
@@ -99,9 +99,6 @@ export const IcClock = (p: P) => (
 export const IcTrend = (p: P) => (
   <S {...p}><path d="m3 17 6-6 4 4 8-8" /><path d="M15 7h6v6" /></S>
 );
-export const IcEye = (p: P) => (
-  <S {...p}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></S>
-);
 export const IcCalendar = (p: P) => (
   <S {...p}><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M8 3v4M16 3v4M3 10h18" /></S>
 );
@@ -120,14 +117,20 @@ export const IcSquare = (p: P) => (
 export const IcWide = (p: P) => (
   <S {...p}><rect x="3" y="7" width="18" height="10" rx="2" /></S>
 );
-export const IcRestart = (p: P) => (
-  <S {...p}><path d="M4 5v5h5" /><path d="M4.5 10a8 8 0 1 1-1 5" transform="rotate(-40 12 12)" /></S>
+export const IcKey = (p: P) => (
+  <S {...p}><circle cx="8" cy="14" r="4.5" /><path d="m11.5 10.5 8-8M17 5l2.5 2.5M14 8l2 2" /></S>
+);
+export const IcTrash = (p: P) => (
+  <S {...p}><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v6M14 11v6" /></S>
+);
+export const IcFolder = (p: P) => (
+  <S {...p}><path d="M3 6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z" /></S>
+);
+export const IcGrid = (p: P) => (
+  <S {...p}><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></S>
 );
 export const IcGrip = (p: P) => (
   <S {...p}><path d="M9 5v14M15 5v14" /></S>
-);
-export const IcStar = (p: P) => (
-  <S {...p}><path d="m12 3 2.7 5.8 6.3.8-4.6 4.3 1.2 6.1L12 17l-5.6 3 1.2-6.1L3 9.6l6.3-.8L12 3z" fill="currentColor" stroke="none" /></S>
 );
 
 /* ---------- social ---------- */
@@ -144,7 +147,7 @@ export const IcXSocial = (p: P) => (
   <S {...p}><path d="m4 4 16 16M20 4 4 20" strokeWidth={2.4} /></S>
 );
 
-export const PLATFORM_ICONS: Record<string, (p: P) => JSX.Element> = {
+export const PLATFORM_ICONS: Record<string, (p: P) => ReactElement> = {
   tiktok: IcTikTok,
   ytshorts: IcYouTube,
   reels: IcInstagram,

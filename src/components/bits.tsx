@@ -38,7 +38,7 @@ export function ScoreRing({ score, size = 46, stroke = 4, num = true }: { score:
   const c = 2 * Math.PI * r;
   const col = scoreColor(score);
   return (
-    <div className="relative inline-flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
+    <div className="relative inline-flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
         <circle cx={size / 2} cy={size / 2} r={r} stroke="#252b39" strokeWidth={stroke} fill="none" />
         <circle
@@ -64,7 +64,7 @@ export function ScoreRing({ score, size = 46, stroke = 4, num = true }: { score:
 }
 
 /* ---------- metric bars ---------- */
-const METRIC_LABELS: [string, keyof { hook: number; retention: number; emotion: number; trend: number; pacing: number }][] = [
+const METRIC_LABELS: [string, string][] = [
   ["Hook", "hook"],
   ["Retention", "retention"],
   ["Emotion", "emotion"],
@@ -76,11 +76,11 @@ export function MiniBars({ metrics, dim = false }: { metrics: Record<string, num
   return (
     <div className="space-y-1.5">
       {METRIC_LABELS.map(([label, key]) => {
-        const v = metrics[key];
+        const v = metrics[key] ?? 0;
         return (
           <div key={key} className="flex items-center gap-2">
             <span className={`w-16 text-[10px] uppercase tracking-[0.14em] ${dim ? "text-fog-dim" : "text-fog"}`}>{label}</span>
-            <div className={`h-1 flex-1 rounded-full ${dim ? "bg-ink-700" : "bg-ink-600"} overflow-hidden`}>
+            <div className={`h-1 flex-1 overflow-hidden rounded-full ${dim ? "bg-ink-700" : "bg-ink-600"}`}>
               <div
                 className="h-full rounded-full transition-all duration-700 ease-[cubic-bezier(.22,1,.36,1)]"
                 style={{ width: `${v}%`, background: scoreColor(v) }}
@@ -103,15 +103,11 @@ export function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (
       className="group flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-ink-750"
     >
       <span>
-        <span className="block text-[13px] font-medium text-snow">{label}</span>
+        {label && <span className="block text-[13px] font-medium text-snow">{label}</span>}
         {hint && <span className="block text-[11px] text-fog-dim">{hint}</span>}
       </span>
-      <span
-        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200 ${on ? "bg-ember-500" : "bg-ink-600 group-hover:bg-ink-600"}`}
-      >
-        <span
-          className={`absolute top-0.5 h-4 w-4 rounded-full bg-snow shadow transition-all duration-200 ${on ? "left-[18px]" : "left-0.5"}`}
-        />
+      <span className={`relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200 ${on ? "bg-ember-500" : "bg-ink-600"}`}>
+        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-snow shadow transition-all duration-200 ${on ? "left-[18px]" : "left-0.5"}`} />
       </span>
     </button>
   );

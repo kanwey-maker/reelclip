@@ -1,4 +1,6 @@
-export function hashStr(s: string): number {
+export const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+
+export function hashSeed(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -7,7 +9,7 @@ export function hashStr(s: string): number {
   return h >>> 0;
 }
 
-export function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number) {
   let a = seed >>> 0;
   return () => {
     a |= 0;
@@ -18,103 +20,85 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
-export function clamp(v: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, v));
+export function uid(): string {
+  return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 }
 
-export function shuffle<T>(arr: T[], rng: () => number): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
+/** 0:34 */
+export function fmtDur(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/** m:ss */
-export function fmtDur(s: number): string {
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${sec.toString().padStart(2, "0")}`;
-}
-
-/** mm:ss.d timecode */
-export function fmtTC(s: number): string {
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  const d = Math.floor((s % 1) * 10);
-  return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}.${d}`;
-}
-
-/** h:mm:ss */
-export function fmtLong(s: number): string {
+/** 1:23:45 */
+export function fmtLong(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
+  const r = s % 60;
   return h > 0
-    ? `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`
-    : `${m}:${sec.toString().padStart(2, "0")}`;
+    ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`
+    : `${m}:${String(r).padStart(2, "0")}`;
 }
 
-function srtPart(s: number): string {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
-  const ms = Math.round((s % 1) * 1000);
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${sec
-    .toString()
-    .padStart(2, "0")},${ms.toString().padStart(3, "0")}`;
+export function scoreColor(v: number): string {
+  if (v >= 85) return "#c8f24f";
+  if (v >= 70) return "#45d6c8";
+  if (v >= 55) return "#ffc247";
+  return "#ff5a36";
 }
 
-export interface SrtLine {
-  text: string;
-  start: number;
-  end: number;
+/** Re-score when the editor trims. Sweet spot: 21–45s, peak ~32s. */
+export function retuneScore(base: number, dur: number): number {
+  let bonus = 0;
+  if (dur >= 21 && dur <= 45) {
+    bonus = 9 - Math.abs(dur - 32) * 0.55;
+  } else if (dur < 21) {
+    bonus = -((21 - dur) * 1.4);
+  } else {
+    bonus = -((dur - 45) * 0.9);
+  }
+  return clamp(Math.round(base + bonus), 40, 99);
 }
 
-export function buildSrt(lines: SrtLine[], offset: number): string {
+export function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 48) || "clip";
+}
+
+export function buildSrt(lines: { start: number; end: number; text: string }[], offset = 0): string {
+  const ts = (t: number) => {
+    const ms = Math.max(0, Math.round((t - offset) * 1000));
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms % 1000).padStart(3, "0")}`;
+  };
   return lines
-    .map((l, i) => `${i + 1}\n${srtPart(Math.max(0, l.start - offset))} --> ${srtPart(Math.max(0.1, l.end - offset))}\n${l.text}`)
-    .join("\n\n") + "\n";
+    .map((l, i) => `${i + 1}\n${ts(l.start)} --> ${ts(l.end)}\n${l.text}\n`)
+    .join("\n");
 }
 
-export function downloadBlob(filename: string, blob: Blob): void {
+export function downloadBlob(name: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename;
+  a.download = name;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
-/** Live virality re-score: rewards the 21–45s sweet spot, punishes drift. */
-export function retuneScore(base: number, dur: number): number {
-  let delta = 0;
-  if (dur >= 21 && dur <= 45) delta += 4;
-  else if (dur >= 15 && dur < 21) delta += 1;
-  else if (dur > 45 && dur <= 60) delta -= 2;
-  else if (dur > 60) delta -= 6;
-  else delta -= 5;
-  if (dur >= 27 && dur <= 38) delta += 2; // the golden pocket
-  return clamp(Math.round(base + delta), 40, 99);
-}
-
-export function scoreColor(score: number): string {
-  if (score >= 85) return "#c8f24f";
-  if (score >= 70) return "#ffc247";
-  return "#ff7a55";
-}
-
-export function scoreLabel(score: number): string {
-  if (score >= 92) return "Certified banger";
-  if (score >= 85) return "High viral potential";
-  if (score >= 75) return "Strong performer";
-  if (score >= 65) return "Solid cut";
-  return "Worth testing";
-}
-
-export function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 42) || "clip";
+export function timeAgo(ts: number): string {
+  const d = Date.now() - ts;
+  const m = Math.floor(d / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }

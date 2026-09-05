@@ -45,7 +45,7 @@ export function ProcessingScreen({ source, onDone, onCancel }: Props) {
   const activeStage = plan.findIndex((s, i) => elapsed < stageStarts[i] + s.dur);
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-5 pb-16 pt-12">
+    <div className="mx-auto w-full max-w-4xl px-5 pb-16 pt-4">
       <button onClick={onCancel} className="flex items-center gap-1.5 text-xs font-semibold text-fog transition-colors hover:text-snow">
         <IcChevronL size={14} /> Cancel — back to sources
       </button>
@@ -76,7 +76,6 @@ export function ProcessingScreen({ source, onDone, onCancel }: Props) {
             </div>
           </div>
 
-          {/* eq bars */}
           <div className="mt-5 flex h-8 items-end justify-center gap-1">
             {[0.9, 0.5, 0.7, 1, 0.6, 0.85, 0.45, 0.75, 0.95, 0.55, 0.8, 0.65].map((h, i) => (
               <div
@@ -135,7 +134,8 @@ export function ProcessingScreen({ source, onDone, onCancel }: Props) {
             <div className="h-56 overflow-y-auto p-4 font-mono text-[12px] leading-relaxed">
               {visibleLogs.map((l, i) => (
                 <p key={i} className="anim-fade-up whitespace-nowrap text-fog" style={{ animationDuration: "0.3s" }}>
-                  <span className="text-fog-dim">$</span> <span className={l.text.startsWith("6 clips") || l.text.includes("forged") ? "text-volt-300" : l.text.includes("%") ? "text-mint-300" : ""}>{l.text}</span>
+                  <span className="text-fog-dim">$</span>{" "}
+                  <span className={l.text.startsWith("6 clips") || l.text.includes("forged") ? "text-volt-300" : l.text.includes("whisper") ? "text-mint-300" : ""}>{l.text}</span>
                 </p>
               ))}
               <span className="caret inline-block h-3.5 w-2 translate-y-0.5 bg-mint-400" />
@@ -143,7 +143,7 @@ export function ProcessingScreen({ source, onDone, onCancel }: Props) {
           </div>
 
           <div className="mt-4 flex items-center justify-between">
-            <p className="text-[11px] text-fog-dim">Model: forge-v2 · running locally in your browser</p>
+            <p className="text-[11px] text-fog-dim">Model: forge-v2 · runs locally in your browser</p>
             <button
               onClick={() => onDone(clips)}
               className="rounded-lg border border-line bg-ink-800 px-3.5 py-2 text-xs font-bold text-fog transition-all hover:border-ink-600 hover:text-snow"

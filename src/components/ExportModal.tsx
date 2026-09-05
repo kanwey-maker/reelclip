@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { Clip, SourceVideo } from "../lib/data";
+import { CAPTION_THEMES, type Clip, type SourceVideo } from "../lib/data";
 import { buildSrt, downloadBlob, fmtDur, slugify } from "../lib/utils";
 import { Chip, Modal, Seg, Toggle } from "./bits";
-import { IcCheck, IcCloud, IcDownload, IcFilm, IcFlame, IcHash, IcType } from "./icons";
+import { IcCheck, IcCloud, IcFilm, IcFlame, IcHash, IcType } from "./icons";
 
 interface Props {
   clip: Clip;
@@ -21,6 +21,8 @@ const RENDER_STAGES: [number, string][] = [
   [90, "Encoding H.264"],
 ];
 
+const MAX_RENDER = 45;
+
 export function ExportModal({ clip, source, onClose, notify }: Props) {
   const [phase, setPhase] = useState<Phase>("config");
   const [progress, setProgress] = useState(0);
@@ -30,7 +32,8 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
   const [cleanAudio, setCleanAudio] = useState(true);
   const [emojiBeats, setEmojiBeats] = useState(true);
   const [queued, setQueued] = useState(false);
-  const [previewState, setPreviewState] = useState<"idle" | "working" | "done" | "err">("idle");
+  const [liveRender, setLiveRender] = useState<"idle" | "working" | "done" | "err">("idle");
+  const [liveProg, setLiveProg] = useState(0);
   const ivRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const slug = slugify(clip.title);
@@ -58,14 +61,20 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
   const stage = [...RENDER_STAGES].reverse().find(([p]) => progress >= p)?.[1] ?? "Warming up";
   const frames = Math.floor((progress / 100) * dur * 30);
 
-  /* ------- real in-browser preview render (first ~6s → WebM) ------- */
-  const renderPreview = async () => {
+  /* ------- real full-clip render in the browser (canvas + MediaRecorder) ------- */
+  const renderLive = async () => {
+    if (!source.url) {
+      setLiveRender("err");
+      notify("No media attached to this source", "err");
+      return;
+    }
     if (typeof MediaRecorder === "undefined") {
-      setPreviewState("err");
+      setLiveRender("err");
       notify("MediaRecorder not available in this browser", "err");
       return;
     }
-    setPreviewState("working");
+    setLiveRender("working");
+    setLiveProg(0);
     try {
       const v = document.createElement("video");
       v.crossOrigin = "anonymous";
@@ -75,13 +84,14 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
       await new Promise<void>((res2, rej) => {
         v.onloadeddata = () => res2();
         v.onerror = () => rej(new Error("load"));
-        setTimeout(() => rej(new Error("timeout")), 9000);
+        setTimeout(() => rej(new Error("timeout")), 12000);
       });
-      const startAt = Math.min(clip.start, Math.max(0, (v.duration || clip.end) - 1));
+      const mediaDur = isFinite(v.duration) && v.duration > 0 ? v.duration : Infinity;
+      const startAt = Math.min(clip.start, Math.max(0, mediaDur - 1));
       v.currentTime = startAt;
       await new Promise<void>((res2) => {
         v.onseeked = () => res2();
-        setTimeout(res2, 1500);
+        setTimeout(res2, 1800);
       });
 
       const canvas = document.createElement("canvas");
@@ -91,12 +101,13 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
       if (!ctx) throw new Error("ctx");
       const stream = canvas.captureStream(30);
       const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm";
-      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3_000_000 });
+      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3_200_000 });
       const chunks: Blob[] = [];
       rec.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
       const stopped = new Promise<Blob>((res2) => { rec.onstop = () => res2(new Blob(chunks, { type: "video/webm" })); });
 
-      const draw = () => {
+      const theme = CAPTION_THEMES[0];
+      const draw = (now: number) => {
         const vw = v.videoWidth || 1920;
         const vh = v.videoHeight || 1080;
         const scale = Math.max(canvas.width / vw, canvas.height / vh);
@@ -106,41 +117,45 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(v, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
 
-        const line = clip.transcript.find((l) => v.currentTime >= l.start - 0.08 && v.currentTime <= l.end);
-        if (line) {
+        const line = clip.transcript.find((l) => now >= l.start - 0.08 && now <= l.end);
+        if (burnCaps && line) {
           let fs = 40;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.font = `800 ${fs}px "Bricolage Grotesque", sans-serif`;
           const maxW = canvas.width - 60;
           const tw = ctx.measureText(line.text.toUpperCase()).width;
-          if (tw > maxW) fs = Math.max(22, Math.floor(fs * (maxW / tw)));
+          if (tw > maxW) fs = Math.max(20, Math.floor(fs * (maxW / tw)));
           ctx.font = `800 ${fs}px "Bricolage Grotesque", sans-serif`;
           ctx.lineWidth = Math.max(4, fs / 6);
           ctx.strokeStyle = "rgba(10,12,16,0.92)";
           ctx.lineJoin = "round";
           const y = canvas.height * 0.8;
           ctx.strokeText(line.text.toUpperCase(), canvas.width / 2, y);
-          ctx.fillStyle = "#ffffff";
+          ctx.fillStyle = theme.base;
           ctx.fillText(line.text.toUpperCase(), canvas.width / 2, y);
         }
 
-        if (burnCaps) {
-          const p = Math.min(1, Math.max(0, (v.currentTime - clip.start) / Math.max(0.1, clip.end - clip.start)));
-          ctx.fillStyle = "rgba(10,12,16,0.5)";
+        if (showBarPct !== null) {
+          ctx.fillStyle = "rgba(10,12,16,0.55)";
           ctx.fillRect(0, 0, canvas.width, 8);
           ctx.fillStyle = "#ff5a36";
-          ctx.fillRect(0, 0, canvas.width * p, 8);
+          ctx.fillRect(0, 0, canvas.width * showBarPct, 8);
         }
       };
 
+      let showBarPct: number | null = null;
       rec.start();
       await v.play();
       const t0 = performance.now();
+      const span = Math.min(dur, MAX_RENDER);
       await new Promise<void>((res2) => {
         const loop = () => {
-          draw();
-          if (performance.now() - t0 < 6000 && v.currentTime < clip.end - 0.05 && !v.ended) requestAnimationFrame(loop);
+          showBarPct = Math.min(1, Math.max(0, (v.currentTime - clip.start) / Math.max(0.1, dur)));
+          draw(v.currentTime);
+          const elapsedS = (performance.now() - t0) / 1000;
+          setLiveProg(Math.min(100, (elapsedS / span) * 100));
+          if (elapsedS < span && v.currentTime < clip.end - 0.05 && !v.ended) requestAnimationFrame(loop);
           else res2();
         };
         loop();
@@ -149,12 +164,12 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
       rec.stop();
       const blob = await stopped;
       if (blob.size < 1000) throw new Error("empty");
-      downloadBlob(`${slug}-preview.webm`, blob);
-      setPreviewState("done");
-      notify("Preview rendered — WebM downloaded", "ok");
+      downloadBlob(`${slug}-9x16.webm`, blob);
+      setLiveRender("done");
+      notify("Full clip rendered — WebM downloaded", "ok");
     } catch {
-      setPreviewState("err");
-      notify("In-browser render blocked (source CORS). SRT + JSON still ready.", "err");
+      setLiveRender("err");
+      notify("In-browser render blocked (source CORS or codec). SRT + JSON still ready.", "err");
     }
   };
 
@@ -178,12 +193,7 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
   };
 
   return (
-    <Modal
-      title="Export clip"
-      subtitle={`${clip.title} · ${fmtDur(dur)} · virality ${clip.score}`}
-      onClose={onClose}
-      width={600}
-    >
+    <Modal title="Export clip" subtitle={`${clip.title} · ${fmtDur(dur)} · virality ${clip.score}`} onClose={onClose} width={600}>
       {phase === "config" && (
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
@@ -260,12 +270,45 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
           </div>
 
           <div className="mt-4 space-y-2.5">
+            {/* full-clip real render */}
+            <div className="rounded-xl border border-mint-400/30 bg-mint-400/5 p-3">
+              <div className="flex items-center gap-3">
+                <IcFilm size={18} className="shrink-0 text-mint-400" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-bold text-snow">{slug}-9x16.webm</p>
+                  <p className="text-[10px] text-fog-dim">Real render · whole clip (up to {MAX_RENDER}s) with burned captions · recorded live in your browser</p>
+                </div>
+                {liveRender === "working" ? (
+                  <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-bold text-mint-300">
+                    <span className="h-2 w-2 animate-ping rounded-full bg-mint-400" /> {Math.floor(liveProg)}%
+                  </span>
+                ) : (
+                  <button
+                    onClick={renderLive}
+                    disabled={!source.url}
+                    className={`shrink-0 rounded-lg px-3.5 py-2 text-xs font-bold transition-all active:scale-95 disabled:opacity-40 ${
+                      liveRender === "done"
+                        ? "border border-volt-400/50 text-volt-300 hover:bg-volt-400/10"
+                        : "border border-mint-400/40 bg-mint-400/10 text-mint-300 hover:bg-mint-400/20"
+                    }`}
+                  >
+                    {liveRender === "done" ? "Re-render" : liveRender === "err" ? "Retry" : "Render now"}
+                  </button>
+                )}
+              </div>
+              {liveRender === "working" && (
+                <div className="mt-2 h-1 overflow-hidden rounded-full bg-ink-700">
+                  <div className="h-full rounded-full bg-mint-400 transition-all duration-200" style={{ width: `${liveProg}%` }} />
+                </div>
+              )}
+            </div>
+
             {/* cloud mp4 */}
             <div className="flex items-center gap-3 rounded-xl border border-line bg-ink-900 p-3">
               <IcCloud size={18} className="shrink-0 text-ember-400" />
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-bold text-snow">{slug}.{format.toLowerCase()}</p>
-                <p className="text-[10px] text-fog-dim">Full-quality master · cloud render queue</p>
+                <p className="text-[10px] text-fog-dim">Lossless master with audio · cloud render queue</p>
               </div>
               {queued ? (
                 <Chip tone="volt"><IcCheck size={10} /> queued · link to inbox</Chip>
@@ -275,31 +318,6 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
                   className="rounded-lg bg-ember-500 px-3.5 py-2 text-xs font-bold text-ink-950 transition-all hover:bg-ember-400 active:scale-95"
                 >
                   Queue render
-                </button>
-              )}
-            </div>
-
-            {/* real webm preview */}
-            <div className="flex items-center gap-3 rounded-xl border border-line bg-ink-900 p-3">
-              <IcFilm size={18} className="shrink-0 text-mint-400" />
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-bold text-snow">{slug}-preview.webm</p>
-                <p className="text-[10px] text-fog-dim">Real render, right here in your browser · first 6s with captions</p>
-              </div>
-              {previewState === "working" ? (
-                <span className="flex items-center gap-1.5 font-mono text-[11px] font-bold text-mint-300">
-                  <span className="h-2 w-2 animate-ping rounded-full bg-mint-400" /> recording…
-                </span>
-              ) : (
-                <button
-                  onClick={renderPreview}
-                  className={`rounded-lg px-3.5 py-2 text-xs font-bold transition-all active:scale-95 ${
-                    previewState === "done"
-                      ? "border border-volt-400/50 text-volt-300 hover:bg-volt-400/10"
-                      : "border border-mint-400/40 bg-mint-400/10 text-mint-300 hover:bg-mint-400/20"
-                  }`}
-                >
-                  {previewState === "done" ? "Re-render" : previewState === "err" ? "Retry" : "Render now"}
                 </button>
               )}
             </div>
@@ -322,8 +340,4 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
       )}
     </Modal>
   );
-}
-
-export function ExportIcon() {
-  return <IcDownload size={14} />;
 }

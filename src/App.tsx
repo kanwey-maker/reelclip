@@ -1,211 +1,332 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { EditorScreen } from "./components/EditorScreen";
 import { ExportModal } from "./components/ExportModal";
 import { ImportScreen } from "./components/ImportScreen";
 import { ProcessingScreen } from "./components/ProcessingScreen";
 import { PublishModal } from "./components/PublishModal";
 import { ResultsScreen } from "./components/ResultsScreen";
-import { IcBolt, IcCheck } from "./components/icons";
-import type { Clip, SourceVideo } from "./lib/data";
+import { Modal } from "./components/bits";
+import { IcBolt, IcCheck, IcClose, IcFilm, IcKey, IcScissors, IcTrash } from "./components/icons";
+import { prepareSource, type Clip, type SourceVideo } from "./lib/data";
+import {
+  clearProjects, deleteProject, loadProjects, loadSettings, saveProject, saveSettings,
+  type AppSettings, type SavedProject,
+} from "./lib/storage";
+import { transcribeWithWhisper } from "./lib/whisper";
 
-type Stage = "import" | "processing" | "results" | "editor";
+type Stage = "home" | "processing" | "results" | "editor";
 type ToastKind = "ok" | "err" | "info";
-interface Toast { id: number; msg: string; kind: ToastKind }
 
-const STEPS = ["Source", "Forge", "Clips", "Studio"];
-const STAGE_IDX: Record<Stage, number> = { import: 0, processing: 1, results: 2, editor: 3 };
+interface Toast {
+  id: number;
+  msg: string;
+  kind: ToastKind;
+}
 
 export default function App() {
-  const [stage, setStage] = useState<Stage>("import");
+  const [stage, setStage] = useState<Stage>("home");
   const [source, setSource] = useState<SourceVideo | null>(null);
   const [clips, setClips] = useState<Clip[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [published, setPublished] = useState<Record<string, string[]>>({});
-  const [exportId, setExportId] = useState<string | null>(null);
-  const [publishId, setPublishId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const reforgeN = useRef(0);
+  const [projects, setProjects] = useState<SavedProject[]>(() => loadProjects());
+  const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  const [showSettings, setShowSettings] = useState(false);
+  const [keyDraft, setKeyDraft] = useState("");
+  const [exportClip, setExportClip] = useState<Clip | null>(null);
+  const [publishClip, setPublishClip] = useState<Clip | null>(null);
+  const toastId = useRef(0);
 
   const notify = useCallback((msg: string, kind: ToastKind = "ok") => {
-    const id = Date.now() + Math.random();
+    const id = ++toastId.current;
     setToasts((t) => [...t.slice(-3), { id, msg, kind }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3800);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3400);
   }, []);
 
-  const pickSource = (s: SourceVideo) => {
+  /* ---------- persistence ---------- */
+  useEffect(() => {
+    if ((stage !== "results" && stage !== "editor") || !source || clips.length === 0) return;
+    const t = setTimeout(() => {
+      const p: SavedProject = {
+        id: source.id,
+        savedAt: Date.now(),
+        source: { ...source, file: undefined },
+        clips,
+      };
+      setProjects(saveProject(p));
+    }, 600);
+    return () => clearTimeout(t);
+  }, [stage, source, clips]);
+
+  /* ---------- flow ---------- */
+  const handleForge = async (raw: SourceVideo) => {
+    let s = prepareSource(raw);
+    if (s.file && settings.openaiKey) {
+      notify("Transcribing with Whisper — real engine engaged", "info");
+      try {
+        const lines = await transcribeWithWhisper(s.file, settings.openaiKey);
+        s = { ...s, transcript: lines, realTranscript: true, words: lines.reduce((a, l) => a + l.text.split(" ").length, 0) };
+        notify(`Whisper returned ${lines.length} segments`, "ok");
+      } catch (err) {
+        notify(err instanceof Error && err.message.includes("25MB") ? "File over 25MB — using local transcript engine" : "Whisper unavailable — using local transcript engine", "err");
+      }
+    }
     setSource(s);
     setClips([]);
-    setPublished({});
     setActiveId(null);
     setStage("processing");
+    window.scrollTo({ top: 0 });
   };
 
-  const onForged = (c: Clip[]) => {
-    setClips(c);
+  const handleForgeDone = (forged: Clip[]) => {
+    setClips(forged);
+    setActiveId(forged[0]?.id ?? null);
     setStage("results");
-    const top = Math.max(...c.map((x) => x.score));
-    notify(`${c.length} clips forged · top virality ${top}`);
+    window.scrollTo({ top: 0 });
+    notify(`${forged.length} clips forged — top score ${Math.max(...forged.map((c) => c.score))}`, "ok");
   };
 
-  const reforge = () => {
-    if (!source) return;
-    reforgeN.current += 1;
-    setSource({ ...source, id: `${source.id.split("-r")[0]}-r${reforgeN.current}` });
-    setStage("processing");
+  const updateClip = useCallback((id: string, patch: Partial<Clip>) => {
+    setClips((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  }, []);
+
+  const handlePublishDone = (ids: string[]) => {
+    if (!publishClip) return;
+    updateClip(publishClip.id, {
+      published: Array.from(new Set([...(publishClip.published ?? []), ...ids])),
+    });
   };
 
-  const reset = () => {
-    setStage("import");
-    setSource(null);
-    setClips([]);
-    setActiveId(null);
-    setPublished({});
-    setExportId(null);
-    setPublishId(null);
+  const handleResume = (id: string) => {
+    const p = projects.find((x) => x.id === id);
+    if (!p) return;
+    setSource(p.source);
+    setClips(p.clips);
+    setActiveId(p.clips[0]?.id ?? null);
+    setStage("results");
+    window.scrollTo({ top: 0 });
+    notify(`Resumed “${p.source.title}”`, "info");
   };
 
-  const updateClip = (id: string, patch: Partial<Clip>) => {
-    setClips((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-  };
+  const activeClip = clips.find((c) => c.id === activeId) ?? null;
+  const stageIdx = stage === "home" ? 0 : stage === "processing" ? 1 : 2;
+  const engineOn = settings.openaiKey.length > 0;
 
-  const onPublishDone = (id: string, platformIds: string[]) => {
-    setPublished((p) => ({ ...p, [id]: [...new Set([...(p[id] ?? []), ...platformIds])] }));
-  };
-
-  const exportClip = clips.find((c) => c.id === exportId) ?? null;
-  const publishClip = clips.find((c) => c.id === publishId) ?? null;
-  const stepIdx = STAGE_IDX[stage];
+  const steps: { label: string; icon: (p: { size?: number }) => ReactNode; go: () => void; enabled: boolean }[] = [
+    { label: "Import", icon: IcFilm, go: () => setStage("home"), enabled: true },
+    { label: "Forge", icon: IcBolt, go: () => stage !== "processing" && stageIdx === 2 && setStage("processing"), enabled: false },
+    { label: "Studio", icon: IcScissors, go: () => { if (clips.length > 0) setStage("results"); }, enabled: clips.length > 0 },
+  ];
 
   return (
-    <div className="min-h-screen font-body text-snow">
+    <div className="relative min-h-screen overflow-x-clip">
       {/* ambient background */}
-      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-        <div className="dotgrid absolute inset-0 opacity-50" />
-        <div className="absolute -left-44 -top-44 h-[580px] w-[580px] rounded-full blur-[150px]" style={{ background: "rgba(255,90,54,0.09)", animation: "driftA 19s ease-in-out infinite" }} />
-        <div className="absolute -bottom-52 -right-36 h-[620px] w-[620px] rounded-full blur-[160px]" style={{ background: "rgba(69,214,200,0.07)", animation: "driftB 23s ease-in-out infinite" }} />
-        <div className="absolute left-1/3 top-1/2 h-[380px] w-[380px] rounded-full blur-[130px]" style={{ background: "rgba(200,242,79,0.04)", animation: "driftA 26s ease-in-out infinite reverse" }} />
+      <div className="pointer-events-none fixed inset-0 -z-10">
+        <div className="absolute inset-0 bg-ink-950" />
+        <div
+          className="absolute -left-40 top-[-15%] h-[560px] w-[560px] rounded-full opacity-[0.13] blur-[120px]"
+          style={{ background: "radial-gradient(circle, #ff5a36 0%, transparent 65%)", animation: "driftA 16s ease-in-out infinite" }}
+        />
+        <div
+          className="absolute right-[-12%] top-[30%] h-[520px] w-[520px] rounded-full opacity-[0.1] blur-[120px]"
+          style={{ background: "radial-gradient(circle, #45d6c8 0%, transparent 65%)", animation: "driftB 19s ease-in-out infinite" }}
+        />
+        <div
+          className="absolute bottom-[-20%] left-[30%] h-[480px] w-[480px] rounded-full opacity-[0.07] blur-[110px]"
+          style={{ background: "radial-gradient(circle, #ffc247 0%, transparent 65%)", animation: "driftA 22s ease-in-out infinite reverse" }}
+        />
+        <div className="dotgrid absolute inset-0 opacity-60 [mask-image:radial-gradient(ellipse_at_top,black_20%,transparent_75%)]" />
         <div className="noise absolute inset-0" />
       </div>
 
       {/* header */}
-      <header className="sticky top-0 z-40 border-b border-line bg-ink-950/85 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-[1440px] items-center gap-4 px-4 sm:px-5">
-          <button onClick={reset} className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-ember-500 text-ink-950 shadow-[0_4px_18px_rgba(255,90,54,0.4)]">
+      <header className="sticky top-0 z-40 border-b border-line/80 bg-ink-950/80 backdrop-blur-md">
+        <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-4 px-5">
+          <button onClick={() => setStage("home")} className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-ember-500 text-ink-950 shadow-[0_4px_18px_rgba(255,90,54,0.45)]">
               <IcBolt size={17} />
             </span>
-            <span className="font-display text-[17px] font-extrabold tracking-tight">
-              Reel<span className="text-ember-500">Forge</span>
+            <span className="font-display text-[17px] font-bold tracking-tight text-snow">
+              ReelForge
             </span>
-            <span className="hidden rounded border border-mint-400/40 bg-mint-400/10 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-mint-300 sm:block">
+            <span className="hidden rounded-md border border-line px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-fog sm:inline">
               beta
             </span>
           </button>
 
           {/* stepper */}
-          <nav className="mx-auto hidden items-center gap-1 md:flex">
-            {STEPS.map((s, i) => (
-              <div key={s} className="flex items-center gap-1">
-                <span
-                  className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] transition-all duration-300 ${
-                    i === stepIdx
-                      ? "bg-ember-500/15 text-ember-300 shadow-[inset_0_0_0_1px_rgba(255,90,54,0.45)]"
-                      : i < stepIdx
-                        ? "text-volt-300"
-                        : "text-fog-dim"
+          <nav className="ml-6 hidden items-center gap-1 md:flex">
+            {steps.map((s, i) => {
+              const done = i < stageIdx;
+              const current = i === stageIdx;
+              const Icon = s.icon;
+              return (
+                <button
+                  key={s.label}
+                  onClick={s.go}
+                  disabled={!s.enabled && !done && !current}
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition-all ${
+                    current ? "bg-ink-800 text-snow" : done ? "text-mint-400 hover:bg-ink-850" : "text-fog-dim hover:text-fog"
                   }`}
                 >
-                  {i < stepIdx ? <IcCheck size={11} /> : <span className={`font-mono ${i === stepIdx ? "" : "opacity-60"}`}>{i + 1}</span>}
-                  {s}
-                </span>
-                {i < STEPS.length - 1 && <span className={`h-px w-5 ${i < stepIdx ? "bg-volt-400/50" : "bg-line"}`} />}
-              </div>
-            ))}
+                  <Icon size={13} />
+                  {s.label}
+                  {done && <IcCheck size={11} />}
+                </button>
+              );
+            })}
           </nav>
 
-          <div className="ml-auto flex items-center gap-3">
-            {stage !== "import" && (
-              <button
-                onClick={reset}
-                className="rounded-lg border border-line bg-ink-850 px-3 py-1.5 text-[11px] font-bold text-fog transition-all hover:border-ink-600 hover:text-snow"
-              >
-                + New project
-              </button>
-            )}
-            <span
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-line font-display text-[11px] font-extrabold text-mint-300"
-              style={{ background: "linear-gradient(135deg, rgba(255,90,54,0.25), rgba(69,214,200,0.2))" }}
-              title="Demo session"
+          <div className="ml-auto flex items-center gap-2.5">
+            <button
+              onClick={() => { setKeyDraft(settings.openaiKey); setShowSettings(true); }}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 font-mono text-[10px] font-bold transition-all active:scale-95 ${
+                engineOn
+                  ? "border-mint-400/40 bg-mint-400/10 text-mint-300 hover:bg-mint-400/20"
+                  : "border-line bg-ink-850 text-fog hover:border-ink-600 hover:text-snow"
+              }`}
             >
-              RF
-            </span>
+              <span className={`h-1.5 w-1.5 rounded-full ${engineOn ? "animate-pulse bg-mint-400" : "bg-fog-dim"}`} />
+              {engineOn ? "whisper linked" : "engine: demo"}
+              <IcKey size={11} />
+            </button>
           </div>
         </div>
       </header>
 
-      {/* main */}
-      <main className="relative z-10">
-        {stage === "import" && <ImportScreen onPick={pickSource} />}
+      {/* stage */}
+      <main className="pt-8">
+        {stage === "home" && (
+          <ImportScreen
+            onForge={(s) => void handleForge(s)}
+            projects={projects}
+            onResume={handleResume}
+            onDeleteProject={(id) => setProjects(deleteProject(id))}
+            notify={notify}
+          />
+        )}
         {stage === "processing" && source && (
-          <ProcessingScreen source={source} onDone={onForged} onCancel={() => setStage("import")} />
+          <ProcessingScreen source={source} onDone={handleForgeDone} onCancel={() => setStage("home")} />
         )}
         {stage === "results" && source && (
           <ResultsScreen
             source={source}
             clips={clips}
-            published={published}
-            onEdit={(id) => { setActiveId(id); setStage("editor"); }}
-            onExport={(c) => setExportId(c.id)}
-            onNewProject={reset}
-            onReforge={reforge}
+            onEdit={(id) => { setActiveId(id); setStage("editor"); window.scrollTo({ top: 0 }); }}
+            onExport={(c) => setExportClip(c)}
+            onPublish={(c) => setPublishClip(c)}
+            onBack={() => setStage("home")}
           />
         )}
-        {stage === "editor" && source && activeId && (
+        {stage === "editor" && source && activeClip && (
           <EditorScreen
+            clip={activeClip}
             source={source}
-            clips={clips}
-            activeId={activeId}
-            published={published}
-            onSelect={setActiveId}
-            onUpdate={updateClip}
             onBack={() => setStage("results")}
-            onExport={(c) => setExportId(c.id)}
-            onPublish={(c) => setPublishId(c.id)}
+            onUpdate={updateClip}
+            onExport={() => setExportClip(activeClip)}
+            onPublish={() => setPublishClip(activeClip)}
             notify={notify}
           />
         )}
       </main>
 
-      <footer className="relative z-10 border-t border-line py-5">
-        <p className="mx-auto max-w-[1440px] px-5 font-mono text-[10px] uppercase tracking-[0.16em] text-fog-dim">
-          ReelForge · clips are forged locally in your browser · sample footage © Blender Foundation
-        </p>
+      {/* footer */}
+      <footer className="mt-10 border-t border-line/70">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-6">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fog-dim">
+            ReelForge · forge-v2 · runs entirely in your browser
+          </p>
+          <p className="font-mono text-[10px] text-fog-dim">
+            exports: webm · srt · json — projects persist locally
+          </p>
+        </div>
       </footer>
 
       {/* modals */}
       {exportClip && source && (
-        <ExportModal clip={exportClip} source={source} onClose={() => setExportId(null)} notify={notify} />
+        <ExportModal clip={clips.find((c) => c.id === exportClip.id) ?? exportClip} source={source} onClose={() => setExportClip(null)} notify={notify} />
       )}
       {publishClip && source && (
         <PublishModal
           clip={publishClip}
           source={source}
-          onClose={() => setPublishId(null)}
-          onDone={(ids) => onPublishDone(publishClip.id, ids)}
+          onClose={() => setPublishClip(null)}
+          onDone={handlePublishDone}
           notify={notify}
         />
       )}
 
+      {showSettings && (
+        <Modal title="Engine settings" subtitle="Plug a real transcription engine into the forge" onClose={() => setShowSettings(false)} width={520}>
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 rounded-xl border border-line bg-ink-900 p-3.5">
+              <span className={`h-2.5 w-2.5 rounded-full ${engineOn ? "animate-pulse bg-mint-400" : "bg-fog-dim"}`} />
+              <p className="text-[13px] font-semibold text-snow">
+                {engineOn ? "Whisper connected — uploads get real transcripts" : "Demo engine — transcripts are synthesized locally"}
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-fog-dim">
+                <IcKey size={12} /> OpenAI API key
+              </label>
+              <input
+                type="password"
+                value={keyDraft}
+                onChange={(e) => setKeyDraft(e.target.value)}
+                placeholder="sk-…"
+                className="h-11 w-full rounded-xl border border-line bg-ink-900 px-3.5 font-mono text-[13px] text-snow outline-none transition-colors placeholder:text-fog-dim focus:border-mint-400/60"
+              />
+              <p className="mt-2 text-[11px] leading-relaxed text-fog-dim">
+                Stored only in this browser and sent only to api.openai.com. Uploads ≤ 25MB are transcribed with{" "}
+                <span className="font-mono text-fog">whisper-1</span> before forging.
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  const next = { ...settings, openaiKey: keyDraft.trim() };
+                  setSettings(next);
+                  saveSettings(next);
+                  setShowSettings(false);
+                  notify(keyDraft.trim() ? "Whisper engine linked" : "Engine reset to local demo", "ok");
+                }}
+                className="flex-1 rounded-xl bg-mint-400 py-2.5 text-[12px] font-bold text-ink-950 transition-all hover:bg-mint-300 active:scale-[0.98]"
+              >
+                Save engine
+              </button>
+              <button
+                onClick={() => {
+                  setProjects([]);
+                  clearProjects();
+                  setShowSettings(false);
+                  notify("Studio data cleared", "info");
+                }}
+                className="flex items-center gap-1.5 rounded-xl border border-ember-500/40 bg-ember-500/10 px-4 py-2.5 text-[12px] font-bold text-ember-300 transition-all hover:bg-ember-500/20 active:scale-[0.98]"
+              >
+                <IcTrash size={13} /> Clear studio
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* toasts */}
-      <div className="fixed bottom-5 right-5 z-[70] flex w-[320px] flex-col gap-2">
+      <div className="pointer-events-none fixed bottom-5 right-5 z-[70] flex w-[320px] flex-col gap-2">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`anim-toast flex items-start gap-2.5 rounded-xl border px-3.5 py-3 shadow-[0_14px_40px_rgba(0,0,0,0.5)] backdrop-blur-md ${
-              t.kind === "ok" ? "border-volt-400/35 bg-ink-850/95" : t.kind === "err" ? "border-ember-500/40 bg-ink-850/95" : "border-line bg-ink-850/95"
+            className={`anim-toast pointer-events-auto flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 shadow-[0_12px_36px_rgba(0,0,0,0.45)] backdrop-blur ${
+              t.kind === "ok"
+                ? "border-volt-400/40 bg-ink-850/95 text-volt-300"
+                : t.kind === "err"
+                  ? "border-ember-500/40 bg-ink-850/95 text-ember-300"
+                  : "border-line bg-ink-850/95 text-fog"
             }`}
           >
-            <span className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${t.kind === "ok" ? "bg-volt-400" : t.kind === "err" ? "bg-ember-500" : "bg-mint-400"}`} />
+            {t.kind === "ok" ? <IcCheck size={15} /> : t.kind === "err" ? <IcClose size={15} /> : <IcBolt size={15} className="text-gold-400" />}
             <p className="text-[12px] font-semibold leading-snug text-snow">{t.msg}</p>
           </div>
         ))}

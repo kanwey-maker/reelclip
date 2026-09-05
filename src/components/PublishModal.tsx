@@ -160,7 +160,7 @@ export function PublishModal({ clip, source, onClose, onDone, notify }: Props) {
             <IcSparkles size={12} className="text-gold-400" /> ReelForge will auto-pin the top comment and watch the first hour for you.
           </p>
 
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex justify-center gap-2">
             <Chip tone="mint"><IcCalendar size={10} /> auto-repost at peak +6h</Chip>
             <Chip tone="gold">first-hour monitor on</Chip>
           </div>
