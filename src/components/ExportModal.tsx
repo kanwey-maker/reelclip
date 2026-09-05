@@ -65,6 +65,11 @@ export function ExportModal({ clip, source, brand, onClose, notify }: Props) {
 
   /* ------- real full-clip render in the browser (canvas + MediaRecorder) ------- */
   const renderLive = async () => {
+    if (source.corsSafe === false) {
+      setLiveRender("err");
+      notify("Playback-only source — the host sends no CORS headers, so canvas rendering needs the cloud queue.", "err");
+      return;
+    }
     if (!source.url) {
       setLiveRender("err");
       notify("No media attached to this source", "err");
@@ -331,9 +336,17 @@ export function ExportModal({ clip, source, brand, onClose, notify }: Props) {
                 <IcFilm size={18} className="shrink-0 text-mint-400" />
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-bold text-snow">{slug}-9x16.webm</p>
-                  <p className="text-[10px] text-fog-dim">Real render · whole clip (up to {MAX_RENDER}s) with burned captions · recorded live in your browser</p>
+                  <p className="text-[10px] text-fog-dim">
+                    {source.corsSafe === false
+                      ? "Locked — this host sends no CORS headers, so the canvas can't touch its pixels. Use the cloud queue or an upload."
+                      : `Real render · whole clip (up to ${MAX_RENDER}s) with burned captions · recorded live in your browser`}
+                  </p>
                 </div>
-                {liveRender === "working" ? (
+                {source.corsSafe === false ? (
+                  <span className="shrink-0 rounded-lg border border-line px-3.5 py-2 text-xs font-bold text-fog-dim">
+                    CORS-locked
+                  </span>
+                ) : liveRender === "working" ? (
                   <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-bold text-mint-300">
                     <span className="h-2 w-2 animate-ping rounded-full bg-mint-400" /> {Math.floor(liveProg)}%
                   </span>

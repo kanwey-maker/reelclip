@@ -18,6 +18,8 @@ export interface SourceVideo {
   thumb?: string;
   isProxy?: boolean;
   realTranscript?: boolean;
+  /** false = stream plays, but canvas rendering is blocked (no CORS headers) */
+  corsSafe?: boolean;
   transcript: TranscriptLine[];
 }
 

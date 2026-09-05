@@ -27,24 +27,46 @@ const PROXY_THUMB: Record<string, string> = {
   "Tech & Startups": "https://image.qwenlm.ai/generated-images/c7169d5b-ce00-45db-b05a-a68f37cffd3a/_result.png",
 };
 
+/* platform pages never expose a raw stream to the browser */
+const PLATFORM_HOSTS = ["youtube.com", "youtu.be", "tiktok.com", "vimeo.com", "instagram.com", "twitch.tv", "facebook.com", "x.com", "twitter.com", "loom.com"];
+
+const EXAMPLE_DIRECT_LINK = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+
+/** Try to load video metadata from a URL. Returns duration, or null. */
+const probeVideo = (u: string, anonymous: boolean): Promise<number | null> =>
+  new Promise((resolve) => {
+    const v = document.createElement("video");
+    v.preload = "metadata";
+    if (anonymous) v.crossOrigin = "anonymous";
+    let done = false;
+    const finish = (d: number | null) => {
+      if (done) return;
+      done = true;
+      v.removeAttribute("src");
+      v.load();
+      resolve(d);
+    };
+    v.onloadedmetadata = () => finish(isFinite(v.duration) && v.duration > 0 ? v.duration : null);
+    v.onerror = () => finish(null);
+    setTimeout(() => finish(null), 9000);
+    v.src = u;
+  });
+
 export function ImportScreen({ onForge, projects, onResume, onDeleteProject, notify }: Props) {
   const [url, setUrl] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [probing, setProbing] = useState<string | null>(null);
+  const [urlState, setUrlState] = useState<"idle" | "probing" | "blocked">("idle");
+  const [probeMsg, setProbeMsg] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const forgeUrl = () => {
-    const u = url.trim();
-    if (!/^https?:\/\/.+\..+/.test(u)) {
-      notify("Paste a full link — https://…", "err");
-      return;
-    }
+  const forgeProxy = (u: string) => {
     let host = "video";
     try {
       host = new URL(u).hostname.replace("www.", "");
     } catch { /* keep default */ }
     const category = inferCategory(u);
-    notify("Remote ingest queued — using proxy media for this demo", "info");
+    notify("Forging with proxy media — the original stream is not browser-accessible", "info");
     onForge({
       id: uid(),
       title: `Imported from ${host}`,
@@ -55,6 +77,65 @@ export function ImportScreen({ onForge, projects, onResume, onDeleteProject, not
       url: PROXY_MEDIA[category],
       thumb: PROXY_THUMB[category],
       isProxy: true,
+      transcript: [],
+    });
+  };
+
+  const forgeUrl = async () => {
+    const u = url.trim();
+    if (!/^https?:\/\/.+\..+/.test(u)) {
+      notify("Paste a full link — https://…", "err");
+      return;
+    }
+    let host = "video";
+    try {
+      host = new URL(u).hostname.replace("www.", "");
+    } catch { /* keep default */ }
+
+    if (PLATFORM_HOSTS.some((h) => host === h || host.endsWith("." + h))) {
+      setUrlState("blocked");
+      return;
+    }
+
+    setUrlState("probing");
+    setProbeMsg("Contacting host…");
+    const t1 = setTimeout(() => setProbeMsg("Fetching stream headers…"), 2200);
+    const t2 = setTimeout(() => setProbeMsg("Reading timeline metadata…"), 5200);
+
+    let dur = await probeVideo(u, true);
+    let cors = true;
+    if (dur === null) {
+      cors = false;
+      setProbeMsg("Stream answers — negotiating CORS…");
+      dur = await probeVideo(u, false);
+    }
+    clearTimeout(t1);
+    clearTimeout(t2);
+
+    if (dur === null) {
+      setUrlState("blocked");
+      return;
+    }
+
+    setUrlState("idle");
+    setUrl("");
+    const category = inferCategory(u);
+    notify(
+      cors
+        ? `Direct stream locked · ${fmtLong(dur)} — forging from your link`
+        : "Stream locked — playback only (host sends no CORS headers)",
+      cors ? "ok" : "info"
+    );
+    onForge({
+      id: uid(),
+      title: `Imported from ${host}`,
+      creator: host,
+      category,
+      duration: dur,
+      words: 0,
+      url: u,
+      isProxy: false,
+      corsSafe: cors,
       transcript: [],
     });
   };
@@ -122,18 +203,70 @@ export function ImportScreen({ onForge, projects, onResume, onDeleteProject, not
             <div className="flex gap-2">
               <input
                 value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && forgeUrl()}
-                placeholder="https://youtube.com/watch?v=… or twitch, drive, any mp4"
-                className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-ink-900 px-3.5 font-mono text-[13px] text-snow outline-none transition-colors placeholder:text-fog-dim focus:border-ember-500/60"
+                onChange={(e) => { setUrl(e.target.value); if (urlState === "blocked") setUrlState("idle"); }}
+                onKeyDown={(e) => e.key === "Enter" && urlState !== "probing" && void forgeUrl()}
+                disabled={urlState === "probing"}
+                placeholder="Direct .mp4 / .webm link, CDN or object-storage URL"
+                className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-ink-900 px-3.5 font-mono text-[13px] text-snow outline-none transition-colors placeholder:text-fog-dim focus:border-ember-500/60 disabled:opacity-50"
               />
               <button
-                onClick={forgeUrl}
-                className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl bg-ember-500 px-4 text-[13px] font-bold text-ink-950 transition-all hover:bg-ember-400 hover:shadow-[0_8px_28px_rgba(255,90,54,0.35)] active:scale-95"
+                onClick={() => void forgeUrl()}
+                disabled={urlState === "probing"}
+                className="flex h-11 w-[104px] shrink-0 items-center justify-center gap-1.5 rounded-xl bg-ember-500 px-4 text-[13px] font-bold text-ink-950 transition-all hover:bg-ember-400 hover:shadow-[0_8px_28px_rgba(255,90,54,0.35)] active:scale-95 disabled:opacity-70"
               >
-                <IcWand size={15} /> Forge
+                {urlState === "probing" ? (
+                  <>
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-ink-950 border-t-transparent" />
+                    Probing
+                  </>
+                ) : (
+                  <>
+                    <IcWand size={15} /> Forge
+                  </>
+                )}
               </button>
             </div>
+
+            {/* probe status + example */}
+            {urlState === "probing" && (
+              <p className="anim-fade-up mt-2 flex items-center gap-2 font-mono text-[11px] text-mint-300" style={{ animationDuration: "0.3s" }}>
+                <span className="h-1.5 w-1.5 animate-ping rounded-full bg-mint-400" /> {probeMsg}
+              </p>
+            )}
+            {urlState !== "probing" && (
+              <button
+                onClick={() => setUrl(EXAMPLE_DIRECT_LINK)}
+                className="mt-2 font-mono text-[11px] font-semibold text-fog-dim underline decoration-line underline-offset-4 transition-colors hover:text-mint-300"
+              >
+                no link handy? paste this working .mp4 →
+              </button>
+            )}
+
+            {/* blocked panel */}
+            {urlState === "blocked" && (
+              <div className="anim-pop mt-3 rounded-xl border border-gold-400/30 bg-gold-400/5 p-4">
+                <p className="text-[13px] font-bold text-gold-300">That stream can't be fetched in a browser</p>
+                <p className="mt-1 text-[12px] leading-relaxed text-fog">
+                  Platform pages (YouTube, TikTok, Drive, Twitch…) and CORS-locked hosts never hand the raw video to a
+                  web page — pulling them needs the server-side ingest worker (<span className="font-mono text-[11px] text-fog">yt-dlp + ffmpeg</span>).
+                  Meanwhile, keep going one of two ways:
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => forgeProxy(url.trim() || "https://platform.video/watch")}
+                    className="rounded-lg bg-gold-400 px-3.5 py-2 text-[12px] font-bold text-ink-950 transition-all hover:brightness-110 active:scale-95"
+                  >
+                    Forge with proxy media
+                  </button>
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    className="rounded-lg border border-line bg-ink-900 px-3.5 py-2 text-[12px] font-bold text-fog transition-all hover:border-ink-600 hover:text-snow"
+                  >
+                    Upload the file instead
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* upload */}
