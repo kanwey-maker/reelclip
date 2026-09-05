@@ -150,6 +150,16 @@ export function ResultsScreen({ source, clips, onEdit, onExport, onPublish, onBa
 
                   <div className="flex flex-1 flex-col p-4">
                     <h3 className="font-display text-[15px] font-bold leading-snug text-snow">{clip.title}</h3>
+                    {((clip.published && clip.published.length > 0) || clip.scheduled) && (
+                      <div className="mt-1.5 flex gap-1.5">
+                        {clip.published && clip.published.length > 0 && (
+                          <Chip tone="volt">
+                            <span className="h-1 w-1 animate-pulse rounded-full bg-volt-300" /> LIVE
+                          </Chip>
+                        )}
+                        {clip.scheduled && <Chip tone="gold">QUEUED</Chip>}
+                      </div>
+                    )}
                     <p className="mt-1 text-[12px] italic leading-snug text-fog">“{clip.hook}”</p>
 
                     <div className="mt-3"><MiniBars metrics={clip.metrics as unknown as Record<string, number>} /></div>

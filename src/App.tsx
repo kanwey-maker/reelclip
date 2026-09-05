@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import confetti from "canvas-confetti";
 import { EditorScreen } from "./components/EditorScreen";
 import { ExportModal } from "./components/ExportModal";
 import { ImportScreen } from "./components/ImportScreen";
+import { LiveScreen } from "./components/LiveScreen";
 import { ProcessingScreen } from "./components/ProcessingScreen";
 import { PublishModal } from "./components/PublishModal";
 import { ResultsScreen } from "./components/ResultsScreen";
 import { Modal } from "./components/bits";
-import { IcBolt, IcCheck, IcClose, IcFilm, IcKey, IcScissors, IcTrash } from "./components/icons";
+import { IcBolt, IcCheck, IcClose, IcFilm, IcKey, IcScissors, IcTrash, IcTrend } from "./components/icons";
 import { prepareSource, type Clip, type SourceVideo } from "./lib/data";
 import {
   clearProjects, deleteProject, loadProjects, loadSettings, saveProject, saveSettings,
@@ -14,7 +16,7 @@ import {
 } from "./lib/storage";
 import { transcribeWithWhisper } from "./lib/whisper";
 
-type Stage = "home" | "processing" | "results" | "editor";
+type Stage = "home" | "processing" | "results" | "editor" | "live";
 type ToastKind = "ok" | "err" | "info";
 
 interface Toast {
@@ -45,7 +47,7 @@ export default function App() {
 
   /* ---------- persistence ---------- */
   useEffect(() => {
-    if ((stage !== "results" && stage !== "editor") || !source || clips.length === 0) return;
+    if ((stage !== "results" && stage !== "editor" && stage !== "live") || !source || clips.length === 0) return;
     const t = setTimeout(() => {
       const p: SavedProject = {
         id: source.id,
@@ -94,8 +96,40 @@ export default function App() {
     if (!publishClip) return;
     updateClip(publishClip.id, {
       published: Array.from(new Set([...(publishClip.published ?? []), ...ids])),
+      publishedAt: publishClip.publishedAt ?? Date.now(),
+      scheduled: undefined,
     });
   };
+
+  const handleScheduled = (ids: string[], at: number) => {
+    if (!publishClip) return;
+    updateClip(publishClip.id, { scheduled: { platforms: ids, at } });
+  };
+
+  /* ---------- scheduler: auto-fire posts whose best slot arrived ---------- */
+  const clipsRef = useRef(clips);
+  useEffect(() => {
+    clipsRef.current = clips;
+  }, [clips]);
+
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const now = Date.now();
+      clipsRef.current.forEach((c) => {
+        if (c.scheduled && c.scheduled.at <= now) {
+          const platforms = c.scheduled.platforms;
+          updateClip(c.id, {
+            scheduled: undefined,
+            published: Array.from(new Set([...(c.published ?? []), ...platforms])),
+            publishedAt: now,
+          });
+          notify(`“${c.title}” just went live on ${platforms.length} platform${platforms.length > 1 ? "s" : ""}`, "ok");
+          confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 }, colors: ["#FFC247", "#FF5A36", "#45D6C8", "#C8F24F"] });
+        }
+      });
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [updateClip, notify]);
 
   const handleResume = (id: string) => {
     const p = projects.find((x) => x.id === id);
@@ -109,13 +143,15 @@ export default function App() {
   };
 
   const activeClip = clips.find((c) => c.id === activeId) ?? null;
-  const stageIdx = stage === "home" ? 0 : stage === "processing" ? 1 : 2;
+  const stageIdx = stage === "home" ? 0 : stage === "processing" ? 1 : stage === "live" ? 3 : 2;
   const engineOn = settings.openaiKey.length > 0;
+  const liveEnabled = clips.some((c) => (c.published && c.published.length > 0) || c.scheduled);
 
-  const steps: { label: string; icon: (p: { size?: number }) => ReactNode; go: () => void; enabled: boolean }[] = [
+  const steps: { label: string; icon: (p: { size?: number }) => ReactNode; go: () => void; enabled: boolean; pulse?: boolean }[] = [
     { label: "Import", icon: IcFilm, go: () => setStage("home"), enabled: true },
     { label: "Forge", icon: IcBolt, go: () => stage !== "processing" && stageIdx === 2 && setStage("processing"), enabled: false },
     { label: "Studio", icon: IcScissors, go: () => { if (clips.length > 0) setStage("results"); }, enabled: clips.length > 0 },
+    { label: "Live", icon: IcTrend, go: () => { if (liveEnabled) setStage("live"); }, enabled: liveEnabled, pulse: liveEnabled },
   ];
 
   return (
@@ -172,6 +208,9 @@ export default function App() {
                   <Icon size={13} />
                   {s.label}
                   {done && <IcCheck size={11} />}
+                  {s.pulse && !current && (
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ember-400" />
+                  )}
                 </button>
               );
             })}
@@ -229,6 +268,14 @@ export default function App() {
             notify={notify}
           />
         )}
+        {stage === "live" && (
+          <LiveScreen
+            clips={clips}
+            source={source}
+            onBack={() => setStage(clips.length > 0 ? "results" : "home")}
+            onEdit={(id) => { setActiveId(id); setStage("editor"); window.scrollTo({ top: 0 }); }}
+          />
+        )}
       </main>
 
       {/* footer */}
@@ -253,6 +300,7 @@ export default function App() {
           source={source}
           onClose={() => setPublishClip(null)}
           onDone={handlePublishDone}
+          onScheduled={handleScheduled}
           notify={notify}
         />
       )}
