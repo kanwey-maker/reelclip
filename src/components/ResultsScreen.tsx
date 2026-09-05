@@ -59,6 +59,9 @@ export function ResultsScreen({ source, clips, onEdit, onExport, onPublish, onBa
               <h2 className="font-display text-xl font-bold text-snow">{source.title}</h2>
               {source.realTranscript && <Chip tone="mint">whisper transcript</Chip>}
               {source.isProxy && <Chip tone="gold">proxy media</Chip>}
+              {!source.isProxy && source.corsSafe === true && <Chip tone="volt">direct stream</Chip>}
+              {!source.isProxy && source.corsSafe === false && <Chip tone="gold">playback only</Chip>}
+              {!source.isProxy && source.corsSafe === undefined && <Chip tone="volt">original upload</Chip>}
             </div>
             <p className="mt-1 font-mono text-[11px] text-fog">
               {source.creator} · {fmtLong(source.duration)} · {source.words.toLocaleString()} words · {source.category}

@@ -342,6 +342,9 @@ export function EditorScreen({ clip, source, brand, onBack, onUpdate, onExport, 
               {fmtDur(Math.max(0, time - clip.start))} <span className="text-fog-dim">/ {fmtDur(dur)}</span>
             </span>
             <Chip tone="ember"><IcRemix size={10} /> loops in–out</Chip>
+            {source.corsSafe === false && (
+              <Chip tone="gold">playback only · no CORS</Chip>
+            )}
             <button
               onClick={() => { setMuted((m) => !m); if (videoRef.current) videoRef.current.muted = !muted; }}
               className="rounded-lg border border-line bg-ink-850 p-2 text-fog transition-all hover:border-ink-600 hover:text-snow"
