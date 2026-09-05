@@ -7,8 +7,8 @@ import { LiveScreen } from "./components/LiveScreen";
 import { ProcessingScreen } from "./components/ProcessingScreen";
 import { PublishModal } from "./components/PublishModal";
 import { ResultsScreen } from "./components/ResultsScreen";
-import { Modal } from "./components/bits";
-import { IcBolt, IcCheck, IcClose, IcFilm, IcKey, IcScissors, IcTrash, IcTrend } from "./components/icons";
+import { SettingsModal } from "./components/SettingsModal";
+import { IcBolt, IcCheck, IcClose, IcFilm, IcKey, IcScissors, IcTrend } from "./components/icons";
 import { prepareSource, type Clip, type SourceVideo } from "./lib/data";
 import {
   clearProjects, deleteProject, loadProjects, loadSettings, saveProject, saveSettings,
@@ -34,7 +34,6 @@ export default function App() {
   const [projects, setProjects] = useState<SavedProject[]>(() => loadProjects());
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [showSettings, setShowSettings] = useState(false);
-  const [keyDraft, setKeyDraft] = useState("");
   const [exportClip, setExportClip] = useState<Clip | null>(null);
   const [publishClip, setPublishClip] = useState<Clip | null>(null);
   const toastId = useRef(0);
@@ -218,7 +217,7 @@ export default function App() {
 
           <div className="ml-auto flex items-center gap-2.5">
             <button
-              onClick={() => { setKeyDraft(settings.openaiKey); setShowSettings(true); }}
+              onClick={() => setShowSettings(true)}
               className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 font-mono text-[10px] font-bold transition-all active:scale-95 ${
                 engineOn
                   ? "border-mint-400/40 bg-mint-400/10 text-mint-300 hover:bg-mint-400/20"
@@ -261,6 +260,7 @@ export default function App() {
           <EditorScreen
             clip={activeClip}
             source={source}
+            brand={settings.brand}
             onBack={() => setStage("results")}
             onUpdate={updateClip}
             onExport={() => setExportClip(activeClip)}
@@ -292,7 +292,13 @@ export default function App() {
 
       {/* modals */}
       {exportClip && source && (
-        <ExportModal clip={clips.find((c) => c.id === exportClip.id) ?? exportClip} source={source} onClose={() => setExportClip(null)} notify={notify} />
+        <ExportModal
+          clip={clips.find((c) => c.id === exportClip.id) ?? exportClip}
+          source={source}
+          brand={settings.brand}
+          onClose={() => setExportClip(null)}
+          notify={notify}
+        />
       )}
       {publishClip && source && (
         <PublishModal
@@ -306,59 +312,20 @@ export default function App() {
       )}
 
       {showSettings && (
-        <Modal title="Engine settings" subtitle="Plug a real transcription engine into the forge" onClose={() => setShowSettings(false)} width={520}>
-          <div className="space-y-4">
-            <div className="flex items-center gap-3 rounded-xl border border-line bg-ink-900 p-3.5">
-              <span className={`h-2.5 w-2.5 rounded-full ${engineOn ? "animate-pulse bg-mint-400" : "bg-fog-dim"}`} />
-              <p className="text-[13px] font-semibold text-snow">
-                {engineOn ? "Whisper connected — uploads get real transcripts" : "Demo engine — transcripts are synthesized locally"}
-              </p>
-            </div>
-
-            <div>
-              <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-fog-dim">
-                <IcKey size={12} /> OpenAI API key
-              </label>
-              <input
-                type="password"
-                value={keyDraft}
-                onChange={(e) => setKeyDraft(e.target.value)}
-                placeholder="sk-…"
-                className="h-11 w-full rounded-xl border border-line bg-ink-900 px-3.5 font-mono text-[13px] text-snow outline-none transition-colors placeholder:text-fog-dim focus:border-mint-400/60"
-              />
-              <p className="mt-2 text-[11px] leading-relaxed text-fog-dim">
-                Stored only in this browser and sent only to api.openai.com. Uploads ≤ 25MB are transcribed with{" "}
-                <span className="font-mono text-fog">whisper-1</span> before forging.
-              </p>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  const next = { ...settings, openaiKey: keyDraft.trim() };
-                  setSettings(next);
-                  saveSettings(next);
-                  setShowSettings(false);
-                  notify(keyDraft.trim() ? "Whisper engine linked" : "Engine reset to local demo", "ok");
-                }}
-                className="flex-1 rounded-xl bg-mint-400 py-2.5 text-[12px] font-bold text-ink-950 transition-all hover:bg-mint-300 active:scale-[0.98]"
-              >
-                Save engine
-              </button>
-              <button
-                onClick={() => {
-                  setProjects([]);
-                  clearProjects();
-                  setShowSettings(false);
-                  notify("Studio data cleared", "info");
-                }}
-                className="flex items-center gap-1.5 rounded-xl border border-ember-500/40 bg-ember-500/10 px-4 py-2.5 text-[12px] font-bold text-ember-300 transition-all hover:bg-ember-500/20 active:scale-[0.98]"
-              >
-                <IcTrash size={13} /> Clear studio
-              </button>
-            </div>
-          </div>
-        </Modal>
+        <SettingsModal
+          settings={settings}
+          onSave={(next) => {
+            setSettings(next);
+            saveSettings(next);
+          }}
+          onClearData={() => {
+            setProjects([]);
+            clearProjects();
+            notify("Studio data cleared", "info");
+          }}
+          onClose={() => setShowSettings(false)}
+          notify={notify}
+        />
       )}
 
       {/* toasts */}

@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { CAPTION_THEMES, hookVariants, suggestTags, titleIdeas, type Clip, type SourceVideo } from "../lib/data";
 import { clamp, fmtDur, hashSeed, mulberry32, retuneScore } from "../lib/utils";
+import type { BrandKit } from "../lib/storage";
 import { Chip, ScoreRing, Seg, Toggle } from "./bits";
 import {
-  IcChevronL, IcCopy, IcDownload, IcFlame, IcGrip, IcHash, IcPalette, IcPause, IcPlay,
+  IcBolt, IcChevronL, IcCopy, IcDownload, IcFlame, IcGrip, IcHash, IcPalette, IcPause, IcPlay,
   IcRemix, IcScissors, IcShare, IcSparkles, IcSquare, IcTall, IcType, IcVolume, IcVolumeX, IcWide,
 } from "./icons";
 
 interface Props {
   clip: Clip;
   source: SourceVideo;
+  brand: BrandKit;
   onBack: () => void;
   onUpdate: (id: string, patch: Partial<Clip>) => void;
   onExport: () => void;
@@ -26,7 +28,7 @@ const ASPECT_CLASS: Record<Aspect, string> = {
   "16:9": "aspect-video w-full max-w-[680px]",
 };
 
-export function EditorScreen({ clip, source, onBack, onUpdate, onExport, onPublish, notify }: Props) {
+export function EditorScreen({ clip, source, brand, onBack, onUpdate, onExport, onPublish, notify }: Props) {
   const [tab, setTab] = useState<Tab>("captions");
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(clip.start);
@@ -282,10 +284,38 @@ export function EditorScreen({ clip, source, onBack, onUpdate, onExport, onPubli
                 </div>
               )}
 
-              {/* burned progress bar */}
+              {/* burned progress bar (brand accent) */}
               {showBar && (
                 <div className="absolute inset-x-0 bottom-0 h-1 bg-ink-950/60">
-                  <div className="h-full bg-ember-500 transition-[width] duration-100" style={{ width: `${progress}%` }} />
+                  <div className="h-full transition-[width] duration-100" style={{ width: `${progress}%`, background: brand.color }} />
+                </div>
+              )}
+
+              {/* logo watermark */}
+              {brand.logo && (
+                <img
+                  src={brand.logo}
+                  alt=""
+                  className="absolute right-2.5 top-2.5 h-8 w-8 rounded-lg object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)]"
+                />
+              )}
+
+              {/* end-card outro */}
+              {brand.outro && time >= clip.end - 1.6 && (
+                <div className="anim-pop absolute inset-0 flex flex-col items-center justify-center gap-3 bg-ink-950/92 px-6 text-center">
+                  <span
+                    className="flex h-14 w-14 items-center justify-center rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
+                    style={{ background: brand.color }}
+                  >
+                    {brand.logo ? (
+                      <img src={brand.logo} alt="" className="h-10 w-10 object-contain" />
+                    ) : (
+                      <IcBolt size={26} className="text-ink-950" />
+                    )}
+                  </span>
+                  <p className="font-display text-lg font-extrabold text-snow">{brand.name}</p>
+                  <p className="font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-fog">follow for daily clips</p>
+                  <span className="h-1 w-16 rounded-full" style={{ background: brand.color }} />
                 </div>
               )}
 
