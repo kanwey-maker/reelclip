@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { CAPTION_THEMES, type Clip, type SourceVideo } from "../lib/data";
 import { buildSrt, downloadBlob, fmtDur, slugify } from "../lib/utils";
+import type { BrandKit } from "../lib/storage";
 import { Chip, Modal, Seg, Toggle } from "./bits";
-import { IcCheck, IcCloud, IcFilm, IcFlame, IcHash, IcType } from "./icons";
+import { IcCheck, IcCloud, IcFilm, IcFlame, IcHash, IcPalette, IcType } from "./icons";
 
 interface Props {
   clip: Clip;
   source: SourceVideo;
+  brand: BrandKit;
   onClose: () => void;
   notify: (msg: string, kind?: "ok" | "err" | "info") => void;
 }
@@ -23,7 +25,7 @@ const RENDER_STAGES: [number, string][] = [
 
 const MAX_RENDER = 45;
 
-export function ExportModal({ clip, source, onClose, notify }: Props) {
+export function ExportModal({ clip, source, brand, onClose, notify }: Props) {
   const [phase, setPhase] = useState<Phase>("config");
   const [progress, setProgress] = useState(0);
   const [format, setFormat] = useState<"MP4" | "MOV">("MP4");
@@ -107,6 +109,14 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
       const stopped = new Promise<Blob>((res2) => { rec.onstop = () => res2(new Blob(chunks, { type: "video/webm" })); });
 
       const theme = CAPTION_THEMES[0];
+      const logoImg: HTMLImageElement | null = brand.logo
+        ? await new Promise<HTMLImageElement | null>((res2) => {
+            const im = new Image();
+            im.onload = () => res2(im);
+            im.onerror = () => res2(null);
+            im.src = brand.logo as string;
+          })
+        : null;
       const draw = (now: number) => {
         const vw = v.videoWidth || 1920;
         const vh = v.videoHeight || 1080;
@@ -139,8 +149,41 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
         if (showBarPct !== null) {
           ctx.fillStyle = "rgba(10,12,16,0.55)";
           ctx.fillRect(0, 0, canvas.width, 8);
-          ctx.fillStyle = "#ff5a36";
+          ctx.fillStyle = brand.color;
           ctx.fillRect(0, 0, canvas.width * showBarPct, 8);
+        }
+
+        /* logo watermark */
+        if (logoImg) {
+          const s = 46;
+          ctx.globalAlpha = 0.92;
+          ctx.drawImage(logoImg, canvas.width - s - 18, 18, s, s);
+          ctx.globalAlpha = 1;
+        }
+
+        /* end-card outro */
+        if (brand.outro && now >= clip.end - 1.5) {
+          ctx.fillStyle = "rgba(10,12,16,0.94)";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          const bs = 128;
+          const bx = (canvas.width - bs) / 2;
+          const by = canvas.height * 0.34;
+          ctx.fillStyle = brand.color;
+          ctx.beginPath();
+          if (typeof ctx.roundRect === "function") ctx.roundRect(bx, by, bs, bs, 30);
+          else ctx.rect(bx, by, bs, bs);
+          ctx.fill();
+          if (logoImg) ctx.drawImage(logoImg, bx + 16, by + 16, bs - 32, bs - 32);
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = "#eef1f7";
+          ctx.font = "800 46px 'Bricolage Grotesque', sans-serif";
+          ctx.fillText(brand.name || "ReelForge", canvas.width / 2, by + bs + 70);
+          ctx.fillStyle = "#8b94a9";
+          ctx.font = "700 19px 'JetBrains Mono', monospace";
+          ctx.fillText("FOLLOW FOR DAILY CLIPS", canvas.width / 2, by + bs + 116);
+          ctx.fillStyle = brand.color;
+          ctx.fillRect(canvas.width / 2 - 40, by + bs + 148, 80, 5);
         }
       };
 
@@ -186,6 +229,7 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
       source: { title: source.title, creator: source.creator, category: source.category },
       clip: { ...clip, transcript: clip.transcript.filter((l) => l.end > clip.start && l.start < clip.end) },
       export: { format, resolution: res, burnCaptions: burnCaps, cleanAudio, emojiBeats },
+      brand: { name: brand.name, color: brand.color, outro: brand.outro, hasLogo: Boolean(brand.logo) },
       exportedAt: new Date().toISOString(),
     };
     downloadBlob(`${slug}.reelforge.json`, new Blob([JSON.stringify(project, null, 2)], { type: "application/json" }));
@@ -215,6 +259,17 @@ export function ExportModal({ clip, source, onClose, notify }: Props) {
             <Toggle on={burnCaps} onChange={setBurnCaps} label="Burn captions" hint="Word-level karaoke, baked into pixels" />
             <Toggle on={cleanAudio} onChange={setCleanAudio} label="AI audio cleanup" hint="Remove silences & breaths, level loudness" />
             <Toggle on={emojiBeats} onChange={setEmojiBeats} label="Reaction beats" hint="Timed flame pops on emphasis words" />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-line bg-ink-900 px-4 py-3">
+            <IcPalette size={15} className="shrink-0" style={{ color: brand.color }} />
+            <p className="text-[12px] text-fog">
+              Brand kit · <span className="font-bold text-snow">{brand.name}</span>
+            </p>
+            <span className="h-3.5 w-3.5 rounded-full border border-line" style={{ background: brand.color }} />
+            {brand.logo && <Chip tone="mint">logo burned</Chip>}
+            {brand.outro && <Chip tone="ember">outro 1.5s</Chip>}
+            {!brand.logo && !brand.outro && <Chip>default look</Chip>}
           </div>
 
           <div className="flex items-center justify-between rounded-xl border border-line bg-ink-900 px-4 py-3">

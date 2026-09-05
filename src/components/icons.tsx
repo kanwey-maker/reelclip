@@ -132,6 +132,12 @@ export const IcGrid = (p: P) => (
 export const IcGrip = (p: P) => (
   <S {...p}><path d="M9 5v14M15 5v14" /></S>
 );
+export const IcEye = (p: P) => (
+  <S {...p}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></S>
+);
+export const IcStar = (p: P) => (
+  <S {...p}><path d="m12 3 2.7 5.8 6.3.8-4.6 4.3 1.2 6.1L12 17l-5.6 3 1.2-6.1L3 9.6l6.3-.8L12 3z" fill="currentColor" stroke="none" /></S>
+);
 
 /* ---------- social ---------- */
 export const IcTikTok = (p: P) => (

@@ -42,6 +42,8 @@ export interface Clip {
   metrics: ClipMetrics;
   emojiBeats: boolean;
   published?: string[];
+  publishedAt?: number;
+  scheduled?: { platforms: string[]; at: number };
   transcript: TranscriptLine[];
 }
 
@@ -433,4 +435,80 @@ export function inferCategory(url: string): string {
 
 export function makeClipId(): string {
   return uid();
+}
+
+/* ------------------------------------------------------------------ */
+/* live metrics simulation (deterministic per clip, grows with time)   */
+/* ------------------------------------------------------------------ */
+
+export interface ClipLiveMetrics {
+  views: number;
+  likes: number;
+  shares: number;
+  comments: number;
+  watchPct: number;
+  vsForecast: number;
+  byPlatform: { id: string; views: number }[];
+  hourlyByPlatform: Record<string, number[]>;
+  retention: number[];
+}
+
+const PLATFORM_WEIGHTS: Record<string, number> = { tiktok: 0.44, ytshorts: 0.26, reels: 0.2, x: 0.1 };
+
+export const PLATFORM_COLORS: Record<string, string> = {
+  tiktok: "#FF5A36",
+  ytshorts: "#FFC247",
+  reels: "#45D6C8",
+  x: "#8B94A9",
+};
+
+export function metricsFor(clip: Clip, now: number): ClipLiveMetrics {
+  const rnd = mulberry32(hashSeed(clip.id + ":live"));
+  const platforms = clip.published ?? [];
+  const at = clip.publishedAt ?? now - 90000;
+  const mins = Math.max(0.75, (now - at) / 60000);
+  const hours = mins * 6; /* demo acceleration: real minutes → "hours" of reach */
+  const reach = platforms.reduce((a, p) => a + (PLATFORM_WEIGHTS[p] ?? 0.1), 0);
+
+  const views = Math.round(((clip.score / 100) ** 2.4) * 5200 * reach * Math.pow(hours, 0.82) * (0.9 + rnd() * 0.25));
+  const likes = Math.round(views * (0.055 + rnd() * 0.05));
+  const shares = Math.round(views * (0.006 + rnd() * 0.007));
+  const comments = Math.round(views * (0.004 + rnd() * 0.005));
+  const watchPct = Math.round(clamp(38 + clip.score * 0.42 + (rnd() * 8 - 4), 30, 96));
+  const vsForecast = Math.round(((watchPct - 52) / 52) * 100);
+
+  const byPlatform = platforms.map((p) => ({
+    id: p,
+    views: Math.round(views * ((PLATFORM_WEIGHTS[p] ?? 0.1) / Math.max(0.001, reach)) * (0.85 + rnd() * 0.3)),
+  }));
+
+  const hourlyByPlatform: Record<string, number[]> = {};
+  platforms.forEach((p) => {
+    const total = byPlatform.find((b) => b.id === p)?.views ?? 0;
+    const weights: number[] = [];
+    let acc = 0;
+    for (let i = 0; i < 24; i++) {
+      const w = Math.pow((i + 1) / 24, 1.6) * (0.8 + rnd() * 0.4);
+      weights.push(w);
+      acc += w;
+    }
+    hourlyByPlatform[p] = weights.map((w) => Math.round((w / acc) * total));
+  });
+
+  const retention: number[] = [];
+  const floor = clamp(30 + clip.score * 0.45, 40, 82);
+  for (let i = 0; i <= 25; i++) {
+    const t = i / 25;
+    let v = 100 - (100 - floor) * Math.pow(t, 0.8);
+    if (t > 0.35 && t < 0.55) v += 6 * Math.sin(((t - 0.35) / 0.2) * Math.PI);
+    if (t > 0.9) v += 3;
+    retention.push(Math.round(clamp(v + (rnd() * 4 - 2), 5, 100)));
+  }
+
+  return { views, likes, shares, comments, watchPct, vsForecast, byPlatform, hourlyByPlatform, retention };
+}
+
+/** Demo-accelerated "AI best slot" — seconds from now. */
+export function scheduleOffsetFor(clipId: string): number {
+  return 45 + (hashSeed(clipId) % 150);
 }

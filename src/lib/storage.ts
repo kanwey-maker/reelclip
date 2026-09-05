@@ -10,8 +10,22 @@ export interface SavedProject {
   clips: Clip[];
 }
 
+export interface BrandKit {
+  name: string;
+  color: string;
+  logo?: string;
+  outro: boolean;
+}
+
+export const DEFAULT_BRAND: BrandKit = {
+  name: "ReelForge",
+  color: "#FF5A36",
+  outro: true,
+};
+
 export interface AppSettings {
   openaiKey: string;
+  brand: BrandKit;
 }
 
 export function loadProjects(): SavedProject[] {
@@ -57,9 +71,14 @@ export function clearProjects(): void {
 export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    return raw ? { openaiKey: "", ...JSON.parse(raw) } : { openaiKey: "" };
+    if (!raw) return { openaiKey: "", brand: { ...DEFAULT_BRAND } };
+    const parsed = JSON.parse(raw) as Partial<AppSettings>;
+    return {
+      openaiKey: parsed.openaiKey ?? "",
+      brand: { ...DEFAULT_BRAND, ...(parsed.brand ?? {}) },
+    };
   } catch {
-    return { openaiKey: "" };
+    return { openaiKey: "", brand: { ...DEFAULT_BRAND } };
   }
 }
 
@@ -69,4 +88,39 @@ export function saveSettings(s: AppSettings): void {
   } catch {
     /* ignore */
   }
+}
+
+/** Downsize an uploaded logo to ≤96px PNG dataURL so it fits localStorage. */
+export function compressLogo(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("Not an image"));
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const size = 96;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        reject(new Error("Canvas unavailable"));
+        return;
+      }
+      const scale = Math.max(size / img.width, size / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      ctx.drawImage(img, (size - dw) / 2, (size - dh) / 2, dw, dh);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not read image"));
+    };
+    img.src = url;
+  });
 }
