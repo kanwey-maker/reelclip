@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { inferCategory, SAMPLE_SOURCES, type SourceVideo } from "../lib/data";
+import { inferCategory, SAMPLE_SOURCES, STYLE_PRESETS, type SourceVideo } from "../lib/data";
 import type { SavedProject } from "../lib/storage";
 import { fmtLong, timeAgo, uid } from "../lib/utils";
 import { Chip, ScoreRing } from "./bits";
@@ -305,6 +305,40 @@ export function ImportScreen({ onForge, projects, onResume, onDeleteProject, not
             <span className="flex items-center gap-1.5 text-fog"><IcScissors size={13} className="text-gold-400" /> Cut & score</span>
             <IcArrowR size={12} />
             <span className="flex items-center gap-1.5 text-fog"><IcSparkles size={13} className="text-volt-400" /> Caption & publish</span>
+          </div>
+
+          {/* style presets */}
+          <div className="mt-7 border-t border-line pt-5">
+            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-gold-400">
+              Or start from a template
+            </p>
+            <p className="mt-1.5 text-[12px] text-fog">
+              Pick a vibe — brand kit, caption style, hook tone, aspect ratio all snap into place.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {STYLE_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    notify(`Template "${p.name}" selected — apply after forge`, "info");
+                    // Store preset for later application
+                    localStorage.setItem("reelforge.pendingPreset", p.id);
+                  }}
+                  className="group relative overflow-hidden rounded-lg border border-line bg-ink-900 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-ink-600 hover:shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
+                >
+                  <div
+                    className="mb-2 h-1 w-full rounded-full"
+                    style={{ background: p.gradient }}
+                  />
+                  <p className="text-[13px] font-bold text-snow">
+                    {p.emoji} {p.name}
+                  </p>
+                  <p className="mt-0.5 text-[10px] leading-snug text-fog-dim line-clamp-2">
+                    {p.tagline}
+                  </p>
+                </button>
+              ))}
+            </div>
           </div>
         </section>
 

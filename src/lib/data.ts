@@ -440,6 +440,131 @@ export function makeClipId(): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* style presets — one-click vibe                                      */
+/* ------------------------------------------------------------------ */
+
+export interface StylePreset {
+  id: string;
+  name: string;
+  tagline: string;
+  emoji: string;
+  brandColor: string;
+  captionTheme: string;
+  hookTone: "bold" | "curious" | "provocative" | "warm" | "hype";
+  aspect: "9:16" | "1:1" | "16:9";
+  outro: boolean;
+  accent: string;
+  gradient: string;
+}
+
+export const STYLE_PRESETS: StylePreset[] = [
+  {
+    id: "mrbeast",
+    name: "Hyper Pop",
+    tagline: "MrBeast energy — loud, fast, impossible to scroll past",
+    emoji: "🔥",
+    brandColor: "#FF5A36",
+    captionTheme: "hormozi",
+    hookTone: "bold",
+    aspect: "9:16",
+    outro: true,
+    accent: "#FFC247",
+    gradient: "linear-gradient(135deg, #FF5A36 0%, #FFC247 100%)",
+  },
+  {
+    id: "podcast-clean",
+    name: "Podcast Clean",
+    tagline: "Minimal, readable, lets the words do the work",
+    emoji: "🎙️",
+    brandColor: "#45D6C8",
+    captionTheme: "minimal",
+    hookTone: "curious",
+    aspect: "9:16",
+    outro: false,
+    accent: "#8B94A9",
+    gradient: "linear-gradient(135deg, #45D6C8 0%, #23BFAE 100%)",
+  },
+  {
+    id: "gaming-hype",
+    name: "Gaming Hype",
+    tagline: "Streamer energy — mint pops, reaction beats on",
+    emoji: "🎮",
+    brandColor: "#C8F24F",
+    captionTheme: "punch",
+    hookTone: "hype",
+    aspect: "9:16",
+    outro: true,
+    accent: "#45D6C8",
+    gradient: "linear-gradient(135deg, #C8F24F 0%, #45D6C8 100%)",
+  },
+  {
+    id: "foodie",
+    name: "Foodie Warm",
+    tagline: "Tungsten glow, inviting, makes people hungry",
+    emoji: "🍜",
+    brandColor: "#FFC247",
+    captionTheme: "volt",
+    hookTone: "warm",
+    aspect: "9:16",
+    outro: false,
+    accent: "#FF5A36",
+    gradient: "linear-gradient(135deg, #FFC247 0%, #FF5A36 100%)",
+  },
+  {
+    id: "tech-founder",
+    name: "Founder Mode",
+    tagline: "Keynote polish — bold statements, clean type",
+    emoji: "💡",
+    brandColor: "#8B94A9",
+    captionTheme: "news",
+    hookTone: "provocative",
+    aspect: "16:9",
+    outro: true,
+    accent: "#45D6C8",
+    gradient: "linear-gradient(135deg, #8B94A9 0%, #45D6C8 100%)",
+  },
+  {
+    id: "storytime",
+    name: "Storytime",
+    tagline: "Intimate, personal, builds trust fast",
+    emoji: "✨",
+    brandColor: "#D9F97F",
+    captionTheme: "volt",
+    hookTone: "curious",
+    aspect: "9:16",
+    outro: false,
+    accent: "#C8F24F",
+    gradient: "linear-gradient(135deg, #D9F97F 0%, #C8F24F 100%)",
+  },
+  {
+    id: "news-bite",
+    name: "News Bite",
+    tagline: "Broadcast authority — lower-third style, serious",
+    emoji: "📰",
+    brandColor: "#FF5A36",
+    captionTheme: "news",
+    hookTone: "provocative",
+    aspect: "1:1",
+    outro: true,
+    accent: "#EEF1F7",
+    gradient: "linear-gradient(135deg, #FF5A36 0%, #EEF1F7 100%)",
+  },
+  {
+    id: "minimalist",
+    name: "Quiet Luxury",
+    tagline: "Understated, premium, lets the content breathe",
+    emoji: "◻️",
+    brandColor: "#EEF1F7",
+    captionTheme: "minimal",
+    hookTone: "warm",
+    aspect: "9:16",
+    outro: false,
+    accent: "#8B94A9",
+    gradient: "linear-gradient(135deg, #EEF1F7 0%, #8B94A9 100%)",
+  },
+];
+
+/* ------------------------------------------------------------------ */
 /* live metrics simulation (deterministic per clip, grows with time)   */
 /* ------------------------------------------------------------------ */
 
