@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { CAPTION_THEMES, hookVariants, suggestTags, titleIdeas, type Clip, type SourceVideo } from "../lib/data";
+import { CAPTION_THEMES, hookVariants, STYLE_PRESETS, suggestTags, titleIdeas, type Clip, type SourceVideo } from "../lib/data";
 import { clamp, fmtDur, hashSeed, mulberry32, retuneScore } from "../lib/utils";
 import type { BrandKit } from "../lib/storage";
 import { Chip, ScoreRing, Seg, Toggle } from "./bits";
@@ -19,7 +19,7 @@ interface Props {
   notify: (msg: string, kind?: "ok" | "err" | "info") => void;
 }
 
-type Tab = "captions" | "trim" | "hook";
+type Tab = "captions" | "trim" | "hook" | "templates";
 type Aspect = "9:16" | "1:1" | "16:9";
 
 const ASPECT_CLASS: Record<Aspect, string> = {
@@ -391,6 +391,7 @@ export function EditorScreen({ clip, source, brand, onBack, onUpdate, onExport, 
                 { id: "captions", label: "Captions", icon: <IcType size={13} /> },
                 { id: "trim", label: "Trim", icon: <IcScissors size={13} /> },
                 { id: "hook", label: "Hook AI", icon: <IcSparkles size={13} /> },
+                { id: "templates", label: "Style", icon: <IcPalette size={13} /> },
               ]}
             />
           </div>
@@ -602,6 +603,58 @@ export function EditorScreen({ clip, source, brand, onBack, onUpdate, onExport, 
                 <div className="flex flex-wrap gap-1.5">
                   {tags.map((t) => <Chip key={t} tone="mint">{t}</Chip>)}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {tab === "templates" && (
+            <div className="anim-fade-up mt-4 space-y-4 rounded-xl border border-line bg-ink-850 p-4" style={{ animationDuration: "0.35s" }}>
+              <div>
+                <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-fog-dim">
+                  <IcPalette size={12} /> Style presets
+                </p>
+                <p className="mb-3 text-[11px] text-fog-dim">
+                  One-click vibe — applies brand color, caption theme, aspect ratio, and hook tone.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {STYLE_PRESETS.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        setThemeId(p.captionTheme);
+                        setAspect(p.aspect);
+                        setShowBar(true);
+                        // Update brand color in the progress bar
+                        const style = document.documentElement.style;
+                        style.setProperty("--brand-accent", p.brandColor);
+                        notify(`Applied "${p.name}" preset`, "ok");
+                      }}
+                      className="group relative overflow-hidden rounded-lg border border-line bg-ink-900 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-ink-600 hover:shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
+                    >
+                      <div
+                        className="mb-2 h-1 w-full rounded-full"
+                        style={{ background: p.gradient }}
+                      />
+                      <p className="text-[12px] font-bold text-snow">
+                        {p.emoji} {p.name}
+                      </p>
+                      <p className="mt-0.5 text-[9px] leading-snug text-fog-dim line-clamp-2">
+                        {p.tagline}
+                      </p>
+                      <div className="mt-2 flex gap-1">
+                        <Chip>{p.aspect}</Chip>
+                        <Chip>{p.hookTone}</Chip>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gold-400/30 bg-gold-400/5 p-3">
+                <p className="text-[11px] font-bold text-gold-300">💡 Pro tip</p>
+                <p className="mt-1 text-[10px] leading-relaxed text-fog">
+                  Templates set the defaults. You can still fine-tune everything in the Captions, Trim, and Hook AI tabs.
+                </p>
               </div>
             </div>
           )}
