@@ -261,10 +261,12 @@ export default function App() {
             clip={activeClip}
             source={source}
             brand={settings.brand}
+            openaiKey={settings.openaiKey}
             onBack={() => setStage("results")}
             onUpdate={updateClip}
             onExport={() => setExportClip(activeClip)}
             onPublish={() => setPublishClip(activeClip)}
+            onOpenSettings={() => setShowSettings(true)}
             notify={notify}
           />
         )}

@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { CAPTION_THEMES, hookVariants, STYLE_PRESETS, suggestTags, titleIdeas, type Clip, type SourceVideo } from "../lib/data";
 import { clamp, fmtDur, hashSeed, mulberry32, retuneScore } from "../lib/utils";
 import type { BrandKit } from "../lib/storage";
+import { transcribeWithWhisper } from "../lib/whisper";
 import { Chip, ScoreRing, Seg, Toggle } from "./bits";
 import {
-  IcBolt, IcChevronL, IcCopy, IcDownload, IcFlame, IcGrip, IcHash, IcPalette, IcPause, IcPlay,
+  IcBolt, IcChevronL, IcCopy, IcDownload, IcFlame, IcGrip, IcHash, IcKey, IcPalette, IcPause, IcPlay,
   IcRemix, IcScissors, IcShare, IcSparkles, IcSquare, IcTall, IcType, IcVolume, IcVolumeX, IcWide,
 } from "./icons";
 
@@ -12,10 +13,12 @@ interface Props {
   clip: Clip;
   source: SourceVideo;
   brand: BrandKit;
+  openaiKey: string;
   onBack: () => void;
   onUpdate: (id: string, patch: Partial<Clip>) => void;
   onExport: () => void;
   onPublish: () => void;
+  onOpenSettings: () => void;
   notify: (msg: string, kind?: "ok" | "err" | "info") => void;
 }
 
@@ -28,7 +31,7 @@ const ASPECT_CLASS: Record<Aspect, string> = {
   "16:9": "aspect-video w-full max-w-[680px]",
 };
 
-export function EditorScreen({ clip, source, brand, onBack, onUpdate, onExport, onPublish, notify }: Props) {
+export function EditorScreen({ clip, source, brand, openaiKey, onBack, onUpdate, onExport, onPublish, onOpenSettings, notify }: Props) {
   const [tab, setTab] = useState<Tab>("captions");
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(clip.start);
@@ -45,6 +48,8 @@ export function EditorScreen({ clip, source, brand, onBack, onUpdate, onExport, 
   const [hookIdx, setHookIdx] = useState(0);
   const [aiTitle, setAiTitle] = useState<string | null>(null);
   const [titleIdx, setTitleIdx] = useState(0);
+  const [transcribing, setTranscribing] = useState(false);
+  const [transcribeProgress, setTranscribeProgress] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const waveRef = useRef<HTMLDivElement>(null);
@@ -183,6 +188,34 @@ export function EditorScreen({ clip, source, brand, onBack, onUpdate, onExport, 
     if (time < draft.a || time > draft.b) seek(draft.a);
     setDraft(null);
     notify(`Trim committed · ${fmtDur(draft.b - draft.a)} · virality ${retuneScore(clip.base, draft.b - draft.a)}`, "info");
+  };
+
+  /* ------- transcription ------- */
+  const runTranscription = async () => {
+    if (!source.file) {
+      notify("No file attached — this source was imported from a URL or proxy. Upload the file directly to transcribe.", "err");
+      return;
+    }
+    if (!openaiKey) {
+      notify("Set your OpenAI API key in settings to enable real transcription.", "err");
+      onOpenSettings();
+      return;
+    }
+    setTranscribing(true);
+    setTranscribeProgress(0);
+    try {
+      const lines = await transcribeWithWhisper(source.file, openaiKey, (pct) => setTranscribeProgress(pct));
+      onUpdate(clip.id, {
+        transcript: lines.filter((l) => l.end > clip.start && l.start < clip.end),
+      });
+      notify(`Real transcript loaded · ${lines.length} segments`, "ok");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      notify(`Transcription failed: ${msg}`, "err");
+    } finally {
+      setTranscribing(false);
+      setTranscribeProgress(0);
+    }
   };
 
   /* ------- hooks ------- */
@@ -433,8 +466,68 @@ export function EditorScreen({ clip, source, brand, onBack, onUpdate, onExport, 
               </div>
 
               <div>
-                <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-fog-dim">
-                  Transcript · {clip.transcript.length} lines <span className="normal-case tracking-normal text-fog-dim">(re-times automatically)</span>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-fog-dim">
+                    Transcript · {clip.transcript.length} lines
+                  </p>
+                  {source.realTranscript ? (
+                    <Chip tone="mint">real whisper transcript</Chip>
+                  ) : (
+                    <Chip tone="gold">demo transcript</Chip>
+                  )}
+                </div>
+
+                {!source.realTranscript && (
+                  <div className="mb-3 rounded-lg border border-gold-400/30 bg-gold-400/5 p-3">
+                    <p className="text-[11px] font-bold text-gold-300">⚠️ Demo transcript active</p>
+                    <p className="mt-1 text-[10px] leading-relaxed text-fog">
+                      This transcript is synthesized from generic sentences and doesn't match your video.
+                      {source.file ? (
+                        <> Set your OpenAI API key to transcribe the actual audio with Whisper.</>
+                      ) : (
+                        <> Upload the video file directly (not via URL) to enable real transcription.</>
+                      )}
+                    </p>
+                    {source.file && (
+                      <button
+                        onClick={runTranscription}
+                        disabled={transcribing}
+                        className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-mint-400/40 bg-mint-400/10 px-3 py-2 text-[11px] font-bold text-mint-300 transition-all hover:bg-mint-400/20 active:scale-95 disabled:opacity-50"
+                      >
+                        {transcribing ? (
+                          <>
+                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-mint-400 border-t-transparent" />
+                            Transcribing… {transcribeProgress}%
+                          </>
+                        ) : (
+                          <>
+                            <IcSparkles size={12} /> Transcribe with Whisper
+                          </>
+                        )}
+                      </button>
+                    )}
+                    {!source.file && (
+                      <button
+                        onClick={onOpenSettings}
+                        className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-line bg-ink-900 px-3 py-2 text-[11px] font-bold text-fog transition-all hover:border-ink-600 hover:text-snow"
+                      >
+                        <IcKey size={12} /> Open settings
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {transcribing && (
+                  <div className="mb-3 h-1 overflow-hidden rounded-full bg-ink-700">
+                    <div
+                      className="h-full rounded-full bg-mint-400 transition-all duration-200"
+                      style={{ width: `${transcribeProgress}%` }}
+                    />
+                  </div>
+                )}
+
+                <p className="mb-2 text-[10px] text-fog-dim">
+                  <span className="normal-case tracking-normal">(re-times automatically)</span>
                 </p>
                 <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
                   {clip.transcript.map((l, i) => (
