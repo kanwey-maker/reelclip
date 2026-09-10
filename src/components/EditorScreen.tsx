@@ -3,6 +3,7 @@ import { CAPTION_THEMES, hookVariants, STYLE_PRESETS, suggestTags, titleIdeas, t
 import { clamp, fmtDur, hashSeed, mulberry32, retuneScore } from "../lib/utils";
 import type { BrandKit } from "../lib/storage";
 import { transcribeWithWhisper } from "../lib/whisper";
+import { transcribeWithDeepgram } from "../lib/deepgram";
 import { generateHooks, generateTitles } from "../lib/openrouter";
 import { Chip, ScoreRing, Seg, Toggle } from "./bits";
 import {
@@ -16,6 +17,7 @@ interface Props {
   brand: BrandKit;
   openaiKey: string;
   openrouterKey: string;
+  deepgramKey: string;
   onBack: () => void;
   onUpdate: (id: string, patch: Partial<Clip>) => void;
   onExport: () => void;
@@ -33,7 +35,7 @@ const ASPECT_CLASS: Record<Aspect, string> = {
   "16:9": "aspect-video w-full max-w-[680px]",
 };
 
-export function EditorScreen({ clip, source, brand, openaiKey, openrouterKey, onBack, onUpdate, onExport, onPublish, onOpenSettings, notify }: Props) {
+export function EditorScreen({ clip, source, brand, openaiKey, openrouterKey, deepgramKey, onBack, onUpdate, onExport, onPublish, onOpenSettings, notify }: Props) {
   const [tab, setTab] = useState<Tab>("captions");
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(clip.start);
@@ -202,19 +204,47 @@ export function EditorScreen({ clip, source, brand, openaiKey, openrouterKey, on
       notify("No file attached — this source was imported from a URL or proxy. Upload the file directly to transcribe.", "err");
       return;
     }
-    if (!openaiKey) {
-      notify("Set your OpenAI API key in settings to enable real transcription.", "err");
+    const hasDeepgram = deepgramKey.trim().length > 0;
+    const hasWhisper = openaiKey.trim().length > 0;
+    if (!hasDeepgram && !hasWhisper) {
+      notify("Set your Deepgram or OpenAI API key in settings to enable real transcription.", "err");
       onOpenSettings();
       return;
     }
     setTranscribing(true);
     setTranscribeProgress(0);
     try {
-      const lines = await transcribeWithWhisper(source.file, openaiKey, (pct) => setTranscribeProgress(pct));
+      let lines;
+      let engine = "";
+      // Try Deepgram first (primary, no file size limit)
+      if (hasDeepgram) {
+        try {
+          lines = await transcribeWithDeepgram(source.file, deepgramKey, (pct) => setTranscribeProgress(pct));
+          engine = "Deepgram";
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Unknown error";
+          if (hasWhisper) {
+            notify(`Deepgram failed (${msg}) — falling back to Whisper`, "info");
+          } else {
+            throw err;
+          }
+        }
+      }
+      // Fallback to Whisper if Deepgram failed or not configured
+      if (!lines && hasWhisper) {
+        if (source.file.size > 25 * 1024 * 1024) {
+          throw new Error("File exceeds Whisper's 25MB limit. Configure Deepgram for unlimited file sizes.");
+        }
+        lines = await transcribeWithWhisper(source.file, openaiKey, (pct) => setTranscribeProgress(pct));
+        engine = "Whisper";
+      }
+      if (!lines) {
+        throw new Error("No transcription engine available");
+      }
       onUpdate(clip.id, {
         transcript: lines.filter((l) => l.end > clip.start && l.start < clip.end),
       });
-      notify(`Real transcript loaded · ${lines.length} segments`, "ok");
+      notify(`Real transcript loaded via ${engine} · ${lines.length} segments`, "ok");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       notify(`Transcription failed: ${msg}`, "err");

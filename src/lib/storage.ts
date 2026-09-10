@@ -26,6 +26,7 @@ export const DEFAULT_BRAND: BrandKit = {
 export interface AppSettings {
   openaiKey: string;
   openrouterKey: string;
+  deepgramKey: string;
   brand: BrandKit;
 }
 
@@ -72,15 +73,16 @@ export function clearProjects(): void {
 export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return { openaiKey: "", openrouterKey: "", brand: { ...DEFAULT_BRAND } };
+    if (!raw) return { openaiKey: "", openrouterKey: "", deepgramKey: "", brand: { ...DEFAULT_BRAND } };
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
     return {
       openaiKey: parsed.openaiKey ?? "",
       openrouterKey: parsed.openrouterKey ?? "",
+      deepgramKey: parsed.deepgramKey ?? "",
       brand: { ...DEFAULT_BRAND, ...(parsed.brand ?? {}) },
     };
   } catch {
-    return { openaiKey: "", openrouterKey: "", brand: { ...DEFAULT_BRAND } };
+    return { openaiKey: "", openrouterKey: "", deepgramKey: "", brand: { ...DEFAULT_BRAND } };
   }
 }
 

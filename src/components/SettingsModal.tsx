@@ -17,6 +17,7 @@ export function SettingsModal({ settings, onSave, onClearData, onClose, notify }
   const [tab, setTab] = useState<"engine" | "brand">("engine");
   const [keyDraft, setKeyDraft] = useState(settings.openaiKey);
   const [openrouterKeyDraft, setOpenrouterKeyDraft] = useState(settings.openrouterKey);
+  const [deepgramKeyDraft, setDeepgramKeyDraft] = useState(settings.deepgramKey);
   const [brand, setBrand] = useState<BrandKit>({ ...settings.brand });
   const [hexDraft, setHexDraft] = useState(settings.brand.color);
   const [dragOver, setDragOver] = useState(false);
@@ -24,6 +25,7 @@ export function SettingsModal({ settings, onSave, onClearData, onClose, notify }
 
   const engineOn = keyDraft.trim().length > 0;
   const openrouterOn = openrouterKeyDraft.trim().length > 0;
+  const deepgramOn = deepgramKeyDraft.trim().length > 0;
 
   const pickLogo = async (file: File) => {
     try {
@@ -42,10 +44,16 @@ export function SettingsModal({ settings, onSave, onClearData, onClose, notify }
   };
 
   const save = () => {
-    onSave({ openaiKey: keyDraft.trim(), openrouterKey: openrouterKeyDraft.trim(), brand });
+    onSave({
+      openaiKey: keyDraft.trim(),
+      openrouterKey: openrouterKeyDraft.trim(),
+      deepgramKey: deepgramKeyDraft.trim(),
+      brand,
+    });
     onClose();
     const msgs: string[] = [];
     if (tab === "brand") msgs.push("Brand kit saved");
+    if (deepgramOn) msgs.push("Deepgram linked");
     if (engineOn) msgs.push("Whisper linked");
     if (openrouterOn) msgs.push("OpenRouter linked");
     notify(msgs.length > 0 ? msgs.join(" · ") : "Settings saved", "ok");
@@ -64,30 +72,57 @@ export function SettingsModal({ settings, onSave, onClearData, onClose, notify }
 
       {tab === "engine" && (
         <div className="anim-fade-up mt-4 space-y-4" style={{ animationDuration: "0.35s" }}>
-          <div className="flex items-center gap-3 rounded-xl border border-line bg-ink-900 p-3.5">
-            <span className={`h-2.5 w-2.5 rounded-full ${engineOn ? "animate-pulse bg-mint-400" : "bg-fog-dim"}`} />
+          {/* Deepgram - Primary transcription engine */}
+          <div className="flex items-center gap-3 rounded-xl border border-mint-400/30 bg-mint-400/5 p-3.5">
+            <span className={`h-2.5 w-2.5 rounded-full ${deepgramOn ? "animate-pulse bg-mint-400" : "bg-fog-dim"}`} />
             <p className="text-[13px] font-semibold text-snow">
-              {engineOn ? "Whisper connected — uploads get real transcripts" : "Demo engine — transcripts are synthesized locally"}
+              {deepgramOn ? "Deepgram connected — unlimited file size, best accuracy" : "Demo engine — transcripts are synthesized locally"}
             </p>
           </div>
 
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-fog-dim">
-              <IcKey size={12} /> OpenAI API key
+              <IcKey size={12} /> Deepgram API key <span className="ml-1 rounded bg-mint-400/20 px-1.5 py-0.5 text-[9px] font-bold text-mint-300">PRIMARY</span>
             </label>
             <input
               type="password"
-              value={keyDraft}
-              onChange={(e) => setKeyDraft(e.target.value)}
-              placeholder="sk-…"
+              value={deepgramKeyDraft}
+              onChange={(e) => setDeepgramKeyDraft(e.target.value)}
+              placeholder="…"
               className="h-11 w-full rounded-xl border border-line bg-ink-900 px-3.5 font-mono text-[13px] text-snow outline-none transition-colors placeholder:text-fog-dim focus:border-mint-400/60"
             />
             <p className="mt-2 text-[11px] leading-relaxed text-fog-dim">
-              Stored only in this browser and sent only to api.openai.com. Uploads ≤ 25MB are transcribed with{" "}
-              <span className="font-mono text-fog">whisper-1</span> before forging.
+              Stored only in this browser and sent only to api.deepgram.com. No file size limits, 5.26% WER accuracy. Free tier: $200 credits.
             </p>
           </div>
 
+          {/* Whisper - Fallback transcription engine */}
+          <div className="border-t border-line pt-4">
+            <div className="flex items-center gap-3 rounded-xl border border-line bg-ink-900 p-3.5">
+              <span className={`h-2.5 w-2.5 rounded-full ${engineOn ? "animate-pulse bg-mint-400" : "bg-fog-dim"}`} />
+              <p className="text-[13px] font-semibold text-snow">
+                {engineOn ? "Whisper connected — fallback for files ≤ 25MB" : "Whisper not configured"}
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-fog-dim">
+                <IcKey size={12} /> OpenAI API key <span className="ml-1 rounded bg-ink-700 px-1.5 py-0.5 text-[9px] font-bold text-fog">FALLBACK</span>
+              </label>
+              <input
+                type="password"
+                value={keyDraft}
+                onChange={(e) => setKeyDraft(e.target.value)}
+                placeholder="sk-…"
+                className="h-11 w-full rounded-xl border border-line bg-ink-900 px-3.5 font-mono text-[13px] text-snow outline-none transition-colors placeholder:text-fog-dim focus:border-mint-400/60"
+              />
+              <p className="mt-2 text-[11px] leading-relaxed text-fog-dim">
+                Stored only in this browser and sent only to api.openai.com. Used as fallback when Deepgram is unavailable. Files ≤ 25MB only.
+              </p>
+            </div>
+          </div>
+
+          {/* OpenRouter - AI text generation */}
           <div className="border-t border-line pt-4">
             <div className="flex items-center gap-3 rounded-xl border border-line bg-ink-900 p-3.5">
               <span className={`h-2.5 w-2.5 rounded-full ${openrouterOn ? "animate-pulse bg-volt-400" : "bg-fog-dim"}`} />
