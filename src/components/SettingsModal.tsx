@@ -16,12 +16,14 @@ const SWATCHES = ["#FF5A36", "#45D6C8", "#C8F24F", "#FFC247", "#FF7AC8", "#7AB8F
 export function SettingsModal({ settings, onSave, onClearData, onClose, notify }: Props) {
   const [tab, setTab] = useState<"engine" | "brand">("engine");
   const [keyDraft, setKeyDraft] = useState(settings.openaiKey);
+  const [openrouterKeyDraft, setOpenrouterKeyDraft] = useState(settings.openrouterKey);
   const [brand, setBrand] = useState<BrandKit>({ ...settings.brand });
   const [hexDraft, setHexDraft] = useState(settings.brand.color);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const engineOn = keyDraft.trim().length > 0;
+  const openrouterOn = openrouterKeyDraft.trim().length > 0;
 
   const pickLogo = async (file: File) => {
     try {
@@ -40,9 +42,13 @@ export function SettingsModal({ settings, onSave, onClearData, onClose, notify }
   };
 
   const save = () => {
-    onSave({ openaiKey: keyDraft.trim(), brand });
+    onSave({ openaiKey: keyDraft.trim(), openrouterKey: openrouterKeyDraft.trim(), brand });
     onClose();
-    notify(tab === "brand" ? "Brand kit saved — applied across the studio" : engineOn ? "Whisper engine linked" : "Engine reset to local demo", "ok");
+    const msgs: string[] = [];
+    if (tab === "brand") msgs.push("Brand kit saved");
+    if (engineOn) msgs.push("Whisper linked");
+    if (openrouterOn) msgs.push("OpenRouter linked");
+    notify(msgs.length > 0 ? msgs.join(" · ") : "Settings saved", "ok");
   };
 
   return (
@@ -80,6 +86,31 @@ export function SettingsModal({ settings, onSave, onClearData, onClose, notify }
               Stored only in this browser and sent only to api.openai.com. Uploads ≤ 25MB are transcribed with{" "}
               <span className="font-mono text-fog">whisper-1</span> before forging.
             </p>
+          </div>
+
+          <div className="border-t border-line pt-4">
+            <div className="flex items-center gap-3 rounded-xl border border-line bg-ink-900 p-3.5">
+              <span className={`h-2.5 w-2.5 rounded-full ${openrouterOn ? "animate-pulse bg-volt-400" : "bg-fog-dim"}`} />
+              <p className="text-[13px] font-semibold text-snow">
+                {openrouterOn ? "OpenRouter connected — AI hooks & titles enabled" : "Demo mode — hooks & titles are template-based"}
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-fog-dim">
+                <IcKey size={12} /> OpenRouter API key
+              </label>
+              <input
+                type="password"
+                value={openrouterKeyDraft}
+                onChange={(e) => setOpenrouterKeyDraft(e.target.value)}
+                placeholder="sk-or-v1-…"
+                className="h-11 w-full rounded-xl border border-line bg-ink-900 px-3.5 font-mono text-[13px] text-snow outline-none transition-colors placeholder:text-fog-dim focus:border-volt-400/60"
+              />
+              <p className="mt-2 text-[11px] leading-relaxed text-fog-dim">
+                Stored only in this browser and sent only to openrouter.ai. Powers AI-generated hooks, titles, and caption enhancement via GPT-4o-mini.
+              </p>
+            </div>
           </div>
         </div>
       )}

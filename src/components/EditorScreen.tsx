@@ -3,6 +3,7 @@ import { CAPTION_THEMES, hookVariants, STYLE_PRESETS, suggestTags, titleIdeas, t
 import { clamp, fmtDur, hashSeed, mulberry32, retuneScore } from "../lib/utils";
 import type { BrandKit } from "../lib/storage";
 import { transcribeWithWhisper } from "../lib/whisper";
+import { generateHooks, generateTitles } from "../lib/openrouter";
 import { Chip, ScoreRing, Seg, Toggle } from "./bits";
 import {
   IcBolt, IcChevronL, IcCopy, IcDownload, IcFlame, IcGrip, IcHash, IcKey, IcPalette, IcPause, IcPlay,
@@ -14,6 +15,7 @@ interface Props {
   source: SourceVideo;
   brand: BrandKit;
   openaiKey: string;
+  openrouterKey: string;
   onBack: () => void;
   onUpdate: (id: string, patch: Partial<Clip>) => void;
   onExport: () => void;
@@ -31,7 +33,7 @@ const ASPECT_CLASS: Record<Aspect, string> = {
   "16:9": "aspect-video w-full max-w-[680px]",
 };
 
-export function EditorScreen({ clip, source, brand, openaiKey, onBack, onUpdate, onExport, onPublish, onOpenSettings, notify }: Props) {
+export function EditorScreen({ clip, source, brand, openaiKey, openrouterKey, onBack, onUpdate, onExport, onPublish, onOpenSettings, notify }: Props) {
   const [tab, setTab] = useState<Tab>("captions");
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(clip.start);
@@ -50,6 +52,10 @@ export function EditorScreen({ clip, source, brand, openaiKey, onBack, onUpdate,
   const [titleIdx, setTitleIdx] = useState(0);
   const [transcribing, setTranscribing] = useState(false);
   const [transcribeProgress, setTranscribeProgress] = useState(0);
+  const [aiHooks, setAiHooks] = useState<string[] | null>(null);
+  const [aiTitles, setAiTitles] = useState<string[] | null>(null);
+  const [generatingHooks, setGeneratingHooks] = useState(false);
+  const [generatingTitles, setGeneratingTitles] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const waveRef = useRef<HTMLDivElement>(null);
@@ -219,9 +225,59 @@ export function EditorScreen({ clip, source, brand, openaiKey, onBack, onUpdate,
   };
 
   /* ------- hooks ------- */
-  const hooks = hookVariants(clip, source.category);
-  const titles = titleIdeas(clip, source.category);
+  const templateHooks = useMemo(() => hookVariants(clip, source.category), [clip, source.category]);
+  const templateTitles = useMemo(() => titleIdeas(clip, source.category), [clip, source.category]);
+  const hooks = aiHooks ?? templateHooks;
+  const titles = aiTitles ?? templateTitles;
   const tags = suggestTags(source.category);
+  const openrouterActive = openrouterKey.trim().length > 0;
+
+  const generateAiHooks = async () => {
+    if (!openrouterActive) {
+      notify("Set your OpenRouter API key in settings to enable AI hooks", "err");
+      onOpenSettings();
+      return;
+    }
+    setGeneratingHooks(true);
+    try {
+      const transcript = clip.transcript.map((l) => l.text).join(" ");
+      const generated = await generateHooks(transcript, source.category, openrouterKey);
+      if (generated.length > 0) {
+        setAiHooks(generated);
+        notify(`Generated ${generated.length} AI hooks`, "ok");
+      } else {
+        notify("AI returned no hooks — using templates", "err");
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      notify(`Hook generation failed: ${msg}`, "err");
+    } finally {
+      setGeneratingHooks(false);
+    }
+  };
+
+  const generateAiTitles = async () => {
+    if (!openrouterActive) {
+      notify("Set your OpenRouter API key in settings to enable AI titles", "err");
+      onOpenSettings();
+      return;
+    }
+    setGeneratingTitles(true);
+    try {
+      const generated = await generateTitles(clip.hook, source.category, openrouterKey);
+      if (generated.length > 0) {
+        setAiTitles(generated);
+        notify(`Generated ${generated.length} AI titles`, "ok");
+      } else {
+        notify("AI returned no titles — using templates", "err");
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      notify(`Title generation failed: ${msg}`, "err");
+    } finally {
+      setGeneratingTitles(false);
+    }
+  };
 
   const dur = clip.end - clip.start;
   const progress = clamp(((time - clip.start) / Math.max(0.1, dur)) * 100, 0, 100);
@@ -632,7 +688,30 @@ export function EditorScreen({ clip, source, brand, openaiKey, onBack, onUpdate,
           {tab === "hook" && (
             <div className="anim-fade-up mt-4 space-y-4 rounded-xl border border-line bg-ink-850 p-4" style={{ animationDuration: "0.35s" }}>
               <div>
-                <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-fog-dim"><IcSparkles size={12} /> Hook variants</p>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-fog-dim">
+                    <IcSparkles size={12} /> Hook variants
+                    {aiHooks && <Chip tone="volt">AI</Chip>}
+                  </p>
+                  {openrouterActive && !aiHooks && (
+                    <button
+                      onClick={generateAiHooks}
+                      disabled={generatingHooks}
+                      className="flex items-center gap-1.5 rounded-md border border-volt-400/40 bg-volt-400/10 px-2 py-1 text-[10px] font-bold text-volt-300 transition-all hover:bg-volt-400/20 active:scale-95 disabled:opacity-50"
+                    >
+                      {generatingHooks ? (
+                        <>
+                          <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-volt-400 border-t-transparent" />
+                          Generating…
+                        </>
+                      ) : (
+                        <>
+                          <IcSparkles size={10} /> Generate with AI
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-1.5">
                   {hooks.map((h, i) => (
                     <div
@@ -666,7 +745,30 @@ export function EditorScreen({ clip, source, brand, openaiKey, onBack, onUpdate,
               </div>
 
               <div>
-                <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-fog-dim"><IcType size={12} /> Title lab</p>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-fog-dim">
+                    <IcType size={12} /> Title lab
+                    {aiTitles && <Chip tone="volt">AI</Chip>}
+                  </p>
+                  {openrouterActive && !aiTitles && (
+                    <button
+                      onClick={generateAiTitles}
+                      disabled={generatingTitles}
+                      className="flex items-center gap-1.5 rounded-md border border-gold-400/40 bg-gold-400/10 px-2 py-1 text-[10px] font-bold text-gold-300 transition-all hover:bg-gold-400/20 active:scale-95 disabled:opacity-50"
+                    >
+                      {generatingTitles ? (
+                        <>
+                          <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-gold-400 border-t-transparent" />
+                          Generating…
+                        </>
+                      ) : (
+                        <>
+                          <IcSparkles size={10} /> Generate with AI
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
                 <div className="rounded-lg border border-line bg-ink-900 px-3 py-2.5">
                   <p className="font-display text-[14px] font-bold text-snow">{aiTitle ?? clip.title}</p>
                 </div>
