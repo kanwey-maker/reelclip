@@ -144,6 +144,7 @@ export default function App() {
   const activeClip = clips.find((c) => c.id === activeId) ?? null;
   const stageIdx = stage === "home" ? 0 : stage === "processing" ? 1 : stage === "live" ? 3 : 2;
   const engineOn = settings.openaiKey.length > 0;
+  const openrouterOn = settings.openrouterKey.length > 0;
   const liveEnabled = clips.some((c) => (c.published && c.published.length > 0) || c.scheduled);
 
   const steps: { label: string; icon: (p: { size?: number }) => ReactNode; go: () => void; enabled: boolean; pulse?: boolean }[] = [
@@ -219,13 +220,13 @@ export default function App() {
             <button
               onClick={() => setShowSettings(true)}
               className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 font-mono text-[10px] font-bold transition-all active:scale-95 ${
-                engineOn
+                engineOn || openrouterOn
                   ? "border-mint-400/40 bg-mint-400/10 text-mint-300 hover:bg-mint-400/20"
                   : "border-line bg-ink-850 text-fog hover:border-ink-600 hover:text-snow"
               }`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${engineOn ? "animate-pulse bg-mint-400" : "bg-fog-dim"}`} />
-              {engineOn ? "whisper linked" : "engine: demo"}
+              <span className={`h-1.5 w-1.5 rounded-full ${engineOn || openrouterOn ? "animate-pulse bg-mint-400" : "bg-fog-dim"}`} />
+              {engineOn && openrouterOn ? "whisper + ai linked" : engineOn ? "whisper linked" : openrouterOn ? "ai linked" : "engine: demo"}
               <IcKey size={11} />
             </button>
           </div>
@@ -262,6 +263,7 @@ export default function App() {
             source={source}
             brand={settings.brand}
             openaiKey={settings.openaiKey}
+            openrouterKey={settings.openrouterKey}
             onBack={() => setStage("results")}
             onUpdate={updateClip}
             onExport={() => setExportClip(activeClip)}
